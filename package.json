@@ -1,6 +1,6 @@
 {
-  "name": "virtual-client-executor",
-  "displayName": "Virtual Client Executor",
+  "name": "virtual-client",
+  "displayName": "Virtual Client",
   "description": "Runs Virtual Client tool on a remote machine",
   "version": "0.0.1",
   "engines": {
@@ -13,37 +13,49 @@
   "contributes": {
     "commands": [
       {
-        "command": "virtual-client-executor.addMachine",
+        "command": "virtual-client.addMachine",
         "title": "Add a Remote Machine"
       },
       {
-        "command": "virtual-client-executor.streamLogs",
+        "command": "virtual-client.streamLogs",
         "title": "Stream Logs"
       },
       {
-        "command": "virtual-client-executor.addMachineWebview",
+        "command": "virtual-client.addMachineWebview",
         "title": "Add a New Machine (Webview)"
       },
       {
-        "command": "virtual-client-executor.runVirtualClientWebview",
-        "title": "Run Virtual Client (Webview)"
+        "command": "virtual-client.runVirtualClientWebview",
+        "title": "Run Virtual Client"
       },
       {
         "command": "machines.addMachine",
         "title": "Add Machine"
+      },
+      {
+        "command": "virtual-client.cancelScheduledRun",
+        "title": "Cancel Experiment"
+      },
+      {
+        "command": "scheduledRuns.openLogFile",
+        "title": "Open Log File"
+      },
+      {
+        "command": "virtual-client.deleteMachine",
+        "title": "Delete Machine"
       }
     ],
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "virtualClientExecutor",
-          "title": "Virtual Client Executor",
+          "id": "virtualClient",
+          "title": "Virtual Client",
           "icon": "resources/vc-logo.png"
         }
       ]
     },
     "views": {
-      "virtualClientExecutor": [
+      "virtualClient": [
         {
           "id": "machinesView",
           "name": "Machines",
@@ -59,12 +71,27 @@
     "menus": {
       "view/item/context": [
         {
-          "command": "virtual-client-executor.addMachineWebview",
+          "command": "virtual-client.addMachineWebview",
           "when": "view == machinesView && viewItem == addMachine",
           "group": "inline"
         },
         {
-          "command": "virtual-client-executor.runVirtualClientWebview",
+          "command": "virtual-client.runVirtualClientWebview",
+          "when": "view == virtualClientView && viewItem == machine",
+          "group": "inline"
+        },
+        {
+          "command": "virtual-client.cancelScheduledRun",
+          "when": "view == virtualClientView && viewItem == scheduledRun",
+          "group": "inline"
+        },
+        {
+          "command": "scheduledRuns.openLogFile",
+          "when": "view == virtualClientView && viewItem == logFile",
+          "group": "navigation@1"
+        },
+        {
+          "command": "virtual-client.deleteMachine",
           "when": "view == machinesView && viewItem == machine",
           "group": "inline"
         }
@@ -73,6 +100,11 @@
         {
           "command": "machines.addMachine",
           "when": "view == machinesView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "virtual-client.runVirtualClientWebview",
+          "when": "view == virtualClientView",
           "group": "navigation@1"
         }
       ]

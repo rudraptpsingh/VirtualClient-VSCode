@@ -1,71 +1,52 @@
-# virtual-client-executor README
+# Virtual Client & VS Code Extension
 
-This is the README for your extension "virtual-client-executor". After writing up a brief description, we recommend including the following sections.
+[Virtual Client](https://microsoft.github.io/VirtualClient) is a cloud-ready, cross-platform workload automation tool from Microsoft Azure teams. It enables you to evaluate system performance using curated, expert-crafted profiles for CPU, GPU, memory, storage, network, and more, on Windows and Linux (x64/ARM64). See the [official documentation](https://microsoft.github.io/VirtualClient/docs/guides/0010-command-line/) for full details and command-line options.
 
-## Features
+## Virtual Client Executor VS Code Extension
 
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
+This Visual Studio Code extension allows you to manage remote machines, schedule and execute Virtual Client workloads, and monitor execution steps in real time—all from within VS Code.
 
-For example if there is an image subfolder under your extension project workspace:
+### Features
 
-\!\[feature X\]\(images/feature-x.png\)
+- Add and manage remote machines (with credentials securely stored)
+- Schedule and execute Virtual Client runs on remote Windows machines via SSH
+- Real-time step-by-step status updates for each scheduled run (including transfer, extraction, and execution)
+- View logs and execution output directly in VS Code
+- Cancel scheduled runs
+- View detailed run history and logs in a webview
+- Tree views for both machines and scheduled runs
 
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
+### Requirements
 
-## Requirements
+- Visual Studio Code 1.60+
+- Remote machines must be accessible via SSH (Windows with PowerShell recommended)
+- Virtual Client package (zip) available locally
+- See [Virtual Client Requirements](https://microsoft.github.io/VirtualClient/docs/overview/) for supported platforms and prerequisites
 
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
+### Usage
 
-## Extension Settings
+1. **Add a Machine:**
+   - Open the "Machines" view and click the + button to add a new machine (name, IP, username, password).
+2. **Run Virtual Client:**
+   - Select a machine and choose "Run Virtual Client". Fill in the package path, platform, and command-line options (see [Command Line Reference](https://microsoft.github.io/VirtualClient/docs/guides/0010-command-line/)).
+   - Submit to schedule a run. The run will appear in the "Scheduled Runs" tree and update in real time.
+3. **Monitor Runs:**
+   - Watch each step update (directory creation, transfer, extraction, execution) in both the tree and webview.
+   - View logs and output after completion.
+4. **Cancel Runs:**
+   - Right-click a scheduled run to cancel/remove it.
 
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
+### Known Issues
 
-For example:
+- Only Windows remote hosts are supported for full functionality.
+- SSH key authentication is not yet supported (password only).
+- No support for Linux/ARM remote execution yet.
 
-This extension contributes the following settings:
-
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
-
-## Known Issues
-
-Calling out known issues can help limit users opening duplicate issues against your extension.
-
-## Release Notes
-
-Users appreciate release notes as you update your extension.
-
-### 1.0.0
-
-Initial release of ...
-
-### 1.0.1
-
-Fixed issue #.
-
-### 1.1.0
-
-Added features X, Y, and Z.
+### Resources
+- [Virtual Client Documentation](https://microsoft.github.io/VirtualClient/)
+- [Command Line Reference](https://microsoft.github.io/VirtualClient/docs/guides/0010-command-line/)
+- [GitHub Repository](https://github.com/microsoft/VirtualClient)
 
 ---
 
-## Following extension guidelines
-
-Ensure that you've read through the extensions guidelines and follow the best practices for creating your extension.
-
-* [Extension Guidelines](https://code.visualstudio.com/api/references/extension-guidelines)
-
-## Working with Markdown
-
-You can author your README using Visual Studio Code. Here are some useful editor keyboard shortcuts:
-
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux).
-* Toggle preview (`Shift+Cmd+V` on macOS or `Shift+Ctrl+V` on Windows and Linux).
-* Press `Ctrl+Space` (Windows, Linux, macOS) to see a list of Markdown snippets.
-
-## For more information
-
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
-
-**Enjoy!**
+**Enjoy using Virtual Client and the VS Code Executor Extension!**
