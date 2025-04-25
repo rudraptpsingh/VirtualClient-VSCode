@@ -1,0 +1,104 @@
+{
+  "name": "virtual-client-executor",
+  "displayName": "Virtual Client Executor",
+  "description": "Runs Virtual Client tool on a remote machine",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.99.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "virtual-client-executor.addMachine",
+        "title": "Add a Remote Machine"
+      },
+      {
+        "command": "virtual-client-executor.streamLogs",
+        "title": "Stream Logs"
+      },
+      {
+        "command": "virtual-client-executor.addMachineWebview",
+        "title": "Add a New Machine (Webview)"
+      },
+      {
+        "command": "virtual-client-executor.runVirtualClientWebview",
+        "title": "Run Virtual Client (Webview)"
+      },
+      {
+        "command": "machines.addMachine",
+        "title": "Add Machine"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "virtualClientExecutor",
+          "title": "Virtual Client Executor",
+          "icon": "resources/vc-logo.png"
+        }
+      ]
+    },
+    "views": {
+      "virtualClientExecutor": [
+        {
+          "id": "machinesView",
+          "name": "Machines",
+          "icon": "resources/vc-logo.png"
+        },
+        {
+          "id": "virtualClientView",
+          "name": "Virtual Client",
+          "icon": "resources/vc-logo.png"
+        }
+      ]
+    },
+    "menus": {
+      "view/item/context": [
+        {
+          "command": "virtual-client-executor.addMachineWebview",
+          "when": "view == machinesView && viewItem == addMachine",
+          "group": "inline"
+        },
+        {
+          "command": "virtual-client-executor.runVirtualClientWebview",
+          "when": "view == machinesView && viewItem == machine",
+          "group": "inline"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "machines.addMachine",
+          "when": "view == machinesView",
+          "group": "navigation@1"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "20.x",
+    "@types/vscode": "^1.99.0",
+    "@typescript-eslint/eslint-plugin": "^8.28.0",
+    "@typescript-eslint/parser": "^8.28.0",
+    "@vscode/test-cli": "^0.0.10",
+    "@vscode/test-electron": "^2.4.1",
+    "eslint": "^9.23.0",
+    "typescript": "^5.8.2"
+  },
+  "dependencies": {
+    "@types/ssh2": "^1.15.5",
+    "ssh2": "^1.16.0"
+  }
+}

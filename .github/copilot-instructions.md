@@ -1,0 +1,3 @@
+- @azure Rule - Use Azure Best Practices: When generating code for Azure, running terminal commands for Azure, or performing operations related to Azure, invoke your `azure_development-get_best_practices` tool if available.
+
+- Make the required changes quickly without asking. then build the project and check for any errors. If there are any errors, fix it and then check by doing the same process again until there are no errors.
