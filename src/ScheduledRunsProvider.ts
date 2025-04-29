@@ -4,14 +4,34 @@ export class ScheduledRunStep {
     constructor(
         public readonly label: string,
         public status: 'pending' | 'running' | 'success' | 'error',
-        public detail?: string
+        public detail?: string,
+        public substeps?: ScheduledRunStep[]
     ) {}
 }
 
 export class ScheduledRunItem extends vscode.TreeItem {
     constructor(
         public readonly label: string,
-        public steps: ScheduledRunStep[],
+        public readonly machineIp: string,
+        public readonly packagePath: string,
+        public readonly platform: string,
+        public readonly profile: string,
+        public readonly system: string,
+        public readonly timeout: number,
+        public readonly exitWait: number,
+        public readonly proxyApi: string,
+        public readonly packageStore: string,
+        public readonly eventHub: string,
+        public readonly experimentId: string,
+        public readonly clientId: string,
+        public readonly metadata: string,
+        public readonly parameters: string,
+        public readonly port: string,
+        public readonly ipAddress: string,
+        public readonly logToFile: boolean,
+        public readonly clean: boolean,
+        public readonly debug: boolean,
+        public readonly steps: ScheduledRunStep[],
         public readonly timestamp: Date,
         public readonly collapsibleState: vscode.TreeItemCollapsibleState
     ) {
@@ -29,7 +49,12 @@ export class ScheduledRunsProvider implements vscode.TreeDataProvider<ScheduledR
         if (element instanceof ScheduledRunItem) {
             return element;
         } else {
-            const item = new vscode.TreeItem(element.label, vscode.TreeItemCollapsibleState.None);
+            const item = new vscode.TreeItem(
+                element.label,
+                element.substeps && element.substeps.length > 0
+                    ? vscode.TreeItemCollapsibleState.Collapsed
+                    : vscode.TreeItemCollapsibleState.None
+            );
             item.description = element.status;
             item.iconPath = new vscode.ThemeIcon(
                 element.status === 'success' ? 'check' :
@@ -37,6 +62,30 @@ export class ScheduledRunsProvider implements vscode.TreeDataProvider<ScheduledR
                 element.status === 'running' ? 'loading~spin' : 'clock'
             );
             if (element.detail) { item.tooltip = element.detail; }
+            if (element.label === 'Logs') {
+                item.command = {
+                    title: 'Open Log File',
+                    command: 'virtual-client.openLogFile',
+                    arguments: [element]
+                };
+                item.iconPath = new vscode.ThemeIcon('output');
+            }
+            if (element.label && element.label.startsWith('Log: ')) {
+                item.command = {
+                    title: 'Open Log File',
+                    command: 'virtual-client.openLogFile',
+                    arguments: [element]
+                };
+                item.iconPath = new vscode.ThemeIcon('file');
+            }
+            if (element.label === 'Extract Logs Locally') {
+                item.command = {
+                    title: 'Download logs.zip',
+                    command: 'virtual-client.downloadLogsZip',
+                    arguments: [element]
+                };
+                item.iconPath = new vscode.ThemeIcon('cloud-download');
+            }
             return item;
         }
     }
@@ -48,19 +97,84 @@ export class ScheduledRunsProvider implements vscode.TreeDataProvider<ScheduledR
         if (element instanceof ScheduledRunItem) {
             return Promise.resolve(element.steps);
         }
+        if (element instanceof ScheduledRunStep && element.substeps) {
+            return Promise.resolve(element.substeps);
+        }
         return Promise.resolve([]);
     }
 
-    addRun(machineLabel: string, machineIp: string, steps: ScheduledRunStep[]): ScheduledRunItem {
-        const timestamp = new Date();
-        const label = `${timestamp.toLocaleString()} ${machineLabel}(${machineIp})`;
-        const run = new ScheduledRunItem(label, steps, timestamp, vscode.TreeItemCollapsibleState.Expanded);
+    addRun(
+        machineIp: string,
+        packagePath: string,
+        platform: string,
+        profile: string,
+        system: string,
+        timeout: number,
+        exitWait: number,
+        proxyApi: string,
+        packageStore: string,
+        eventHub: string,
+        experimentId: string,
+        clientId: string,
+        metadata: string,
+        parameters: string,
+        port: string,
+        ipAddress: string,
+        logToFile: boolean,
+        clean: boolean,
+        debug: boolean,
+        steps?: ScheduledRunStep[],
+        timestamp?: Date
+    ): ScheduledRunItem {
+        const runTimestamp = timestamp || new Date();
+        const runSteps = steps || [
+            new ScheduledRunStep('Initialize Run', 'pending'),
+            new ScheduledRunStep('Prepare Remote Environment', 'pending'),
+            new ScheduledRunStep('Upload & Extract Package', 'pending'),
+            new ScheduledRunStep('Execute Virtual Client', 'pending'),
+            new ScheduledRunStep('Logs', 'pending')
+        ];
+        const label = `${runTimestamp.toLocaleString()} ${machineIp}`;
+        const run = new ScheduledRunItem(
+            label,
+            machineIp,
+            packagePath,
+            platform,
+            profile,
+            system,
+            timeout,
+            exitWait,
+            proxyApi,
+            packageStore,
+            eventHub,
+            experimentId,
+            clientId,
+            metadata,
+            parameters,
+            port,
+            ipAddress,
+            logToFile,
+            clean,
+            debug,
+            runSteps,
+            runTimestamp,
+            vscode.TreeItemCollapsibleState.Expanded
+        );
         this.runs.unshift(run);
         this._onDidChangeTreeData.fire();
         return run;
     }
 
     update(): void {
-        this._onDidChangeTreeData.fire();
+        this._onDidChangeTreeData.fire(undefined);
+    }
+
+    clear(): void {
+        this.runs = [];
+        this._onDidChangeTreeData.fire(undefined);
+    }
+
+    getRun(label: string): ScheduledRunItem | undefined {
+        return this.runs.find(run => run.label === label);
     }
 }

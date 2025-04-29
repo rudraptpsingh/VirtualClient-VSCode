@@ -21,6 +21,18 @@ export function getAddMachineWebviewContent(): string {
             <input type="text" id="username" name="username" required><br><br>
             <label for="password">Password:</label><br>
             <input type="password" id="password" name="password" required><br><br>
+            <label for="platform">Platform:</label><br>
+            <select id="platform" name="platform" required>
+                <option value="">Select platform</option>
+                <option value="windows-x64">Windows x64</option>
+                <option value="win-arm64">Windows ARM64</option>
+                <option value="linux-x64">Linux x64</option>
+                <option value="linux-arm64">Linux ARM64</option>
+            </select>
+            <button type="button" id="detectPlatformBtn" style="margin-left: 10px;">Detect Platform</button>
+            <span id="detectPlatformSpinner" style="display:none; margin-left:5px; vertical-align:middle;">
+                <svg width="18" height="18" viewBox="0 0 50 50" style="vertical-align:middle;"><circle cx="25" cy="25" r="20" fill="none" stroke="#0078d4" stroke-width="5" stroke-linecap="round" stroke-dasharray="31.415, 31.415" transform="rotate(72.0001 25 25)"><animateTransform attributeName="transform" type="rotate" from="0 25 25" to="360 25 25" dur="1s" repeatCount="indefinite"/></circle></svg>
+            </span><br><br>
             <button type="submit">Add Machine</button>
             <button type="button" id="cancelBtn">Cancel</button>
         </form>
@@ -33,11 +45,39 @@ export function getAddMachineWebviewContent(): string {
                     label: document.getElementById('label').value,
                     ip: document.getElementById('ip').value,
                     username: document.getElementById('username').value,
-                    password: document.getElementById('password').value
+                    password: document.getElementById('password').value,
+                    platform: document.getElementById('platform').value
                 });
             });
             document.getElementById('cancelBtn').addEventListener('click', () => {
                 vscode.postMessage({ command: 'cancel' });
+            });
+            document.getElementById('detectPlatformBtn').addEventListener('click', () => {
+                const ip = document.getElementById('ip').value;
+                const username = document.getElementById('username').value;
+                const password = document.getElementById('password').value;
+                if (!ip || !username || !password) {
+                    alert('Please fill in IP, username, and password before detecting platform.');
+                    return;
+                }
+                document.getElementById('detectPlatformSpinner').style.display = '';
+                vscode.postMessage({
+                    command: 'detectPlatform',
+                    ip,
+                    username,
+                    password
+                });
+            });
+            window.addEventListener('message', event => {
+                const message = event.data;
+                if (message.command === 'platformDetected') {
+                    document.getElementById('detectPlatformSpinner').style.display = 'none';
+                    if (message.platform) {
+                        document.getElementById('platform').value = message.platform;
+                    } else {
+                        alert('Failed to detect platform. Please check credentials or try again.');
+                    }
+                }
             });
         </script>
     </body>
@@ -45,246 +85,262 @@ export function getAddMachineWebviewContent(): string {
     `;
 }
 
-export function getRunVirtualClientWebviewContent(machines: any[], lastParams?: any, steps?: { label: string, status: string, detail?: string }[]): string {
-    const stepsHtml = (steps ?? []).map(step => `<li class="step-item ${step.status}">${step.label}: ${step.status}${step.detail ? ' - ' + step.detail : ''}</li>`).join('');
-    const machineOptions = machines.map(m => `<option value="${m.ip}">${m.label} (${m.ip})</option>`).join('');
-    return `
-    <!DOCTYPE html>
+export function getRunVirtualClientWebviewContent(machines: any[], lastParams?: any, _steps?: any[], webview?: vscode.Webview): string {
+    const machineOptions = machines.map(machine => 
+        `<option value="${machine.ip}" ${lastParams?.machineIp === machine.ip ? 'selected' : ''}>${machine.label} (${machine.ip})</option>`
+    ).join('');
+
+    return `<!DOCTYPE html>
     <html lang="en">
     <head>
         <meta charset="UTF-8">
-        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline' 'unsafe-eval';">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Run Virtual Client</title>
         <style>
-            body { color: var(--vscode-editor-foreground); background: var(--vscode-editor-background); font-family: var(--vscode-font-family, 'Segoe UI', Arial, sans-serif); margin: 0; padding: 0 0 20px 0; }
-            h2 { margin-top: 16px; }
-            form#runForm { max-width: 700px; margin: 0 auto; background: var(--vscode-editorWidget-background); border-radius: 4px; box-shadow: 0 1px 4px 0 var(--vscode-widget-shadow, rgba(0,0,0,0.04)); padding: 18px 20px 14px 20px; border: 1px solid var(--vscode-panel-border); }
-            fieldset { border: 1px solid var(--vscode-panel-border); border-radius: 3px; margin-bottom: 18px; padding: 10px 14px 10px 14px; }
-            legend { font-weight: bold; color: var(--vscode-editor-foreground); }
-            label { display: block; margin-bottom: 2px; font-size: 0.97em; font-weight: 500; color: var(--vscode-editor-foreground); }
-            .desc { font-size: 0.92em; color: var(--vscode-descriptionForeground, #888); margin-bottom: 4px; }
-            input[type="text"], input[type="number"], select { width: 100%; padding: 4px 7px; border-radius: 2px; border: 1px solid var(--vscode-input-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground); font-size: 0.97em; margin-bottom: 8px; box-sizing: border-box; transition: border 0.2s; }
-            input[type="text"]:focus, input[type="number"]:focus, select:focus { border: 1.5px solid var(--vscode-focusBorder); outline: none; }
-            button[type="submit"], button[type="button"] { padding: 6px 16px; margin-right: 8px; margin-top: 8px; border: none; border-radius: 2px; font-size: 1em; font-weight: 600; background: var(--vscode-button-background); color: var(--vscode-button-foreground); cursor: pointer; transition: background 0.15s, box-shadow 0.15s; box-shadow: 0 1px 4px 0 var(--vscode-widget-shadow, rgba(0,120,212,0.06)); }
-            button[type="button"] { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
-            button[type="submit"]:hover, button[type="button"]:hover { filter: brightness(1.08); box-shadow: 0 2px 8px 0 var(--vscode-widget-shadow, rgba(0,120,212,0.10)); }
-            ul#stepsList { padding-left: 1.2em; margin-top: 14px; margin-bottom: 0; max-width: 650px; margin-left: auto; margin-right: auto; }
-            .step-item { font-weight: 500; margin-bottom: 0.2em; padding: 6px 8px; border-radius: 2px; font-size: 0.98em; background: var(--vscode-editorWidget-background); border-left: 3px solid var(--vscode-panel-border); transition: background 0.2s, border-color 0.2s; }
-            .step-item.success { color: #4EC9B0; border-left-color: #4EC9B0; background: rgba(78,201,176,0.08); }
-            .step-item.error { color: #F44747; border-left-color: #F44747; background: rgba(244,71,71,0.08); }
-            .step-item.running { color: #569CD6; border-left-color: #569CD6; background: rgba(86,156,214,0.08); }
-            .step-item.pending { color: #D7BA7D; border-left-color: #D7BA7D; background: rgba(215,186,125,0.08); }
+            body {
+                padding: 20px;
+                font-family: var(--vscode-font-family);
+                color: var(--vscode-foreground);
+                background-color: var(--vscode-editor-background);
+            }
+            .form-group {
+                margin-bottom: 15px;
+            }
+            label {
+                display: block;
+                margin-bottom: 5px;
+                font-weight: bold;
+            }
+            .desc {
+                font-size: 0.9em;
+                color: var(--vscode-descriptionForeground);
+                margin-bottom: 5px;
+            }
+            input[type="text"], input[type="number"], select {
+                width: 100%;
+                padding: 8px;
+                border: 1px solid var(--vscode-input-border);
+                background-color: var(--vscode-input-background);
+                color: var(--vscode-input-foreground);
+                border-radius: 2px;
+            }
+            .checkbox-group {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 10px;
+                margin-top: 10px;
+            }
+            .checkbox-item {
+                display: flex;
+                align-items: center;
+                gap: 5px;
+            }
+            button {
+                padding: 8px 16px;
+                background-color: var(--vscode-button-background);
+                color: var(--vscode-button-foreground);
+                border: none;
+                border-radius: 2px;
+                cursor: pointer;
+            }
+            button:hover {
+                background-color: var(--vscode-button-hoverBackground);
+            }
+            .grid-2 {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 20px;
+            }
         </style>
     </head>
     <body>
-        <h2>Run Virtual Client</h2>
         <form id="runForm">
-            <fieldset>
-                <legend>Target</legend>
-                <label for="machineIp">Select Machine:</label>
+            <div class="form-group">
+                <label for="machine">Target Machine:</label>
                 <span class="desc">The remote machine to run Virtual Client on.</span>
-                <select id="machineIp" name="machineIp" required>
+                <select id="machine" name="machineIp" required>
+                    <option value="">Select a machine</option>
                     ${machineOptions}
                 </select>
+            </div>
+
+            <div class="form-group">
                 <label for="packagePath">Virtual Client Package Path:</label>
                 <span class="desc">Path to the Virtual Client package on the remote machine.</span>
-                <input type="text" id="packagePath" name="packagePath" placeholder="/home/user/VirtualClient" value="${lastParams?.packagePath ?? ''}" required>
-                <label for="platform">Platform:</label>
-                <span class="desc">Target platform for the Virtual Client package.</span>
-                <select id="platform" name="platform" required>
-                    <option value="win-x64" ${lastParams?.platform === 'win-x64' ? 'selected' : ''}>win-x64</option>
-                    <option value="win-arm64" ${lastParams?.platform === 'win-arm64' ? 'selected' : ''}>win-arm64</option>
-                    <option value="linux-x64" ${lastParams?.platform === 'linux-x64' ? 'selected' : ''}>linux-x64</option>
-                    <option value="linux-arm64" ${lastParams?.platform === 'linux-arm64' ? 'selected' : ''}>linux-arm64</option>
-                </select>
-            </fieldset>
-            <fieldset>
-                <legend>Priority Parameters</legend>
+                <input type="text" id="packagePath" name="packagePath" value="${lastParams?.packagePath || ''}" required>
+            </div>
+
+            <div class="form-group">
                 <label for="profile">Profile (--profile):</label>
                 <span class="desc">The workload profile to execute. Example: 'PERF-CPU-OPENSSL.json'.</span>
-                <input type="text" id="profile" name="profile" placeholder="PERF-CPU-OPENSSL.json" value="${lastParams?.profile ?? ''}">
-                <label for="system">System (--system):</label>
-                <span class="desc">The system definition file to use.</span>
-                <input type="text" id="system" name="system" placeholder="system.json" value="${lastParams?.system ?? ''}">
-                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;">
-                    <div>
-                        <label for="timeout">Timeout (--timeout):</label>
-                        <span class="desc">Timeout in minutes for the run.</span>
-                        <input type="number" id="timeout" name="timeout" placeholder="180" value="${lastParams?.timeout ?? ''}">
-                    </div>
-                    <div>
-                        <label for="iterations">Iterations (--iterations):</label>
-                        <span class="desc">Number of times to run the workload.</span>
-                        <input type="number" id="iterations" name="iterations" placeholder="1" value="${lastParams?.iterations ?? ''}">
-                    </div>
-                    <div>
-                        <label for="exitWait">Exit Wait (--exit-wait):</label>
-                        <span class="desc">Minutes to wait before exit.</span>
-                        <input type="number" id="exitWait" name="exitWait" placeholder="5" value="${lastParams?.exitWait ?? ''}">
-                    </div>
+                <select id="profile" name="profile" required>
+                    <option value="PERF-IO-DISKSPD.json" ${lastParams?.profile === 'PERF-IO-DISKSPD.json' ? 'selected' : ''}>PERF-IO-DISKSPD.json</option>
+                    <option value="custom" ${lastParams?.profile && lastParams?.profile !== 'PERF-IO-DISKSPD.json' ? 'selected' : ''}>Custom...</option>
+                </select>
+                <input type="text" id="profileCustom" name="profileCustom" style="display: none; margin-top: 5px;" placeholder="Enter custom profile" value="${lastParams?.profile && lastParams?.profile !== 'PERF-IO-DISKSPD.json' ? lastParams?.profile : ''}">
+                <button type="button" id="loadDefaultsBtn" style="margin-left: 10px;">Load Defaults</button>
+            </div>
+
+            <div class="grid-2">
+                <div class="form-group">
+                    <label for="system">System (--system):</label>
+                    <span class="desc">The system definition file to use.</span>
+                    <input type="text" id="system" name="system" value="${lastParams?.system || ''}">
                 </div>
-                <div style="margin-top:10px;">
-                    <label for="logger">Logger (--logger):</label>
-                    <span class="desc">Logger type (e.g., Console, File, EventHub).</span>
-                    <input type="text" id="logger" name="logger" placeholder="Console,File,EventHub" value="${lastParams?.logger ?? ''}">
+            </div>
+
+            <div class="grid-2">
+                <div class="form-group">
+                    <label for="timeout">Timeout (--timeout):</label>
+                    <span class="desc">Timeout in minutes.</span>
+                    <input type="number" id="timeout" name="timeout" value="${lastParams?.timeout || '10'}" min="1">
                 </div>
-                <div style="margin-top:10px;">
-                    <label class="checkbox-label">
-                        <input type="checkbox" id="logToFile" name="logToFile" ${lastParams?.logToFile ? 'checked' : ''}>
-                        <span style="margin-left: 5px;">Log to File (--log-to-file)</span>
-                    </label>
-                    <label class="checkbox-label" style="margin-left:20px;">
-                        <input type="checkbox" id="debug" name="debug" ${lastParams?.debug ? 'checked' : ''}>
-                        <span style="margin-left: 5px;">Debug/Verbose (--debug)</span>
-                    </label>
-                    <label class="checkbox-label" style="margin-left:20px;">
-                        <input type="checkbox" id="cleanFlag" name="cleanFlag" ${lastParams?.cleanFlag ? 'checked' : ''}>
-                        <span style="margin-left: 5px;">Clean (--clean)</span>
-                    </label>
+
+                <div class="form-group">
+                    <label for="exitWait">Exit Wait (--exit-wait):</label>
+                    <span class="desc">Minutes to wait before exit.</span>
+                    <input type="number" id="exitWait" name="exitWait" value="${lastParams?.exitWait || '2'}" min="1">
                 </div>
+            </div>
+
+            <div class="form-group">
                 <label for="proxyApi">Proxy API (--proxy-api):</label>
                 <span class="desc">Proxy API endpoint.</span>
-                <input type="text" id="proxyApi" name="proxyApi" placeholder="e.g., http://localhost:4501" value="${lastParams?.proxyApi ?? ''}">
+                <input type="text" id="proxyApi" name="proxyApi" value="${lastParams?.proxyApi || ''}">
+            </div>
+
+            <div class="form-group">
                 <label for="packageStore">Package Store (--package-store):</label>
                 <span class="desc">Path or URI to the package store directory.</span>
-                <input type="text" id="packageStore" name="packageStore" placeholder="/home/user/packages or SAS URI" value="${lastParams?.packageStore ?? ''}">
+                <input type="text" id="packageStore" name="packageStore" value="${lastParams?.packageStore || ''}">
+            </div>
+
+            <div class="form-group">
                 <label for="eventHub">Event Hub (--event-hub):</label>
                 <span class="desc">Azure Event Hub connection string or name.</span>
-                <input type="text" id="eventHub" name="eventHub" placeholder="Event Hub connection string or name" value="${lastParams?.eventHub ?? ''}">
-            </fieldset>
-            <fieldset>
-                <legend>Other Parameters</legend>
+                <input type="text" id="eventHub" name="eventHub" value="${lastParams?.eventHub || ''}">
+            </div>
+
+            <div class="form-group">
                 <label for="experimentId">Experiment Id (--experiment-id):</label>
                 <span class="desc">The experiment ID for this run.</span>
-                <input type="text" id="experimentId" name="experimentId" placeholder="b9fd4dce-eb3b-455f-bc81-2a394d1ff849" value="${lastParams?.experimentId ?? ''}">
+                <input type="text" id="experimentId" name="experimentId" value="${lastParams?.experimentId || ''}">
+            </div>
+
+            <div class="form-group">
                 <label for="clientId">Client Id (--client-id):</label>
                 <span class="desc">The client ID for this run.</span>
-                <input type="text" id="clientId" name="clientId" placeholder="cluster01,eb3fc2d9-157b-4efc-b39c-a454a0779a5b,VCTest4-01" value="${lastParams?.clientId ?? ''}">
+                <input type="text" id="clientId" name="clientId" value="${lastParams?.clientId || ''}">
+            </div>
+
+            <div class="form-group">
                 <label for="metadata">Metadata (--metadata):</label>
                 <span class="desc">Additional metadata in key=value format, separated by ',,,' or ';'.</span>
-                <input type="text" id="metadata" name="metadata" placeholder="experimentGroup=Group A,,,cluster=cluster01" value="${lastParams?.metadata ?? ''}">
+                <input type="text" id="metadata" name="metadata" value="${lastParams?.metadata || ''}">
+            </div>
+
+            <div class="form-group">
                 <label for="parameters">Parameters (--parameters):</label>
                 <span class="desc">Additional parameters in key=value format, separated by ',,,' or ';'.</span>
-                <input type="text" id="parameters" name="parameters" placeholder="property1=value1,,,property2=value2" value="${lastParams?.parameters ?? ''}">
+                <input type="text" id="parameters" name="parameters" value="${lastParams?.parameters || ''}">
+            </div>
+
+            <div class="form-group">
                 <label for="port">API Port (--port):</label>
                 <span class="desc">Port for the Virtual Client API. Example: 4500 or 4501/Client,4502/Server</span>
-                <input type="text" id="port" name="port" placeholder="4500 or 4501/Client,4502/Server" value="${lastParams?.port ?? ''}">
+                <input type="text" id="port" name="port" value="${lastParams?.port || ''}">
+            </div>
+
+            <div class="form-group">
                 <label for="ipAddress">IP Address (--ip, --ip-address):</label>
                 <span class="desc">Target/remote system IP address for monitoring.</span>
-                <input type="text" id="ipAddress" name="ipAddress" placeholder="1.2.3.4" value="${lastParams?.ipAddress ?? ''}">
-            </fieldset>
-            <fieldset>
-                <legend>Flags</legend>
-                <label><input type="checkbox" id="debug" name="debug" ${lastParams?.debug ? 'checked' : ''}> Debug (--debug, --verbose)</label>
-                <span class="desc">Request verbose logging output to the console.</span><br>
-                <label><input type="checkbox" id="diag" name="diag" ${lastParams?.diag ? 'checked' : ''}> Diagnostics (--diag)</label>
-                <span class="desc">Enable diagnostics output.</span><br>
-                <label><input type="checkbox" id="help" name="help" ${lastParams?.help ? 'checked' : ''}> Help (-?, -h, --help)</label>
-                <span class="desc">Show help and usage information.</span><br>
-                <label><input type="checkbox" id="version" name="version" ${lastParams?.version ? 'checked' : ''}> Version (--version)</label>
-                <span class="desc">Show Virtual Client version and exit.</span><br>
-                <label><input type="checkbox" id="monitor" name="monitor" ${lastParams?.monitor ? 'checked' : ''}> Monitor (--mon, --monitor)</label>
-                <span class="desc">Monitor the API service locally or at the specified IP address.</span><br>
-            </fieldset>
-            <fieldset>
-                <legend>Other Additional Arguments</legend>
-                <label for="additionalArgs">Other Additional Arguments</label>
-                <span class="desc">Specify any other arguments (e.g., --log-level=Trace). One per line.</span>
-                <textarea id="additionalArgs" name="additionalArgs" placeholder="--log-level=Trace\n--some-other-flag" style="width:98%;height:60px;">${lastParams?.additionalArgs ?? ''}</textarea>
-            </fieldset>
+                <input type="text" id="ipAddress" name="ipAddress" value="${lastParams?.ipAddress || ''}">
+            </div>
+
+            <div class="form-group">
+                <label for="remoteTargetDir">Remote Target Directory:</label>
+                <span class="desc">Directory on the remote machine where the package will be uploaded and extracted (e.g., /home/remoteuser/vc).</span>
+                <input type="text" id="remoteTargetDir" name="remoteTargetDir" value="${lastParams?.remoteTargetDir || ''}" required>
+            </div>
+
+            <div class="form-group">
+                <label>Options:</label>
+                <div class="checkbox-group">
+                    <div class="checkbox-item">
+                        <input type="checkbox" id="logToFile" name="logToFile" ${lastParams?.logToFile ? 'checked' : ''}>
+                        <label for="logToFile">Log to File (--log-to-file)</label>
+                    </div>
+                    <div class="checkbox-item">
+                        <input type="checkbox" id="clean" name="clean" ${lastParams?.clean ? 'checked' : ''}>
+                        <label for="clean">Clean (--clean)</label>
+                    </div>
+                    <div class="checkbox-item">
+                        <input type="checkbox" id="debug" name="debug" ${lastParams?.debug ? 'checked' : ''}>
+                        <label for="debug">Debug/Verbose (--debug)</label>
+                    </div>
+                </div>
+            </div>
+
             <button type="submit">Run Virtual Client</button>
-            <button type="button" id="cancelBtn">Cancel</button>
         </form>
-        <h3>Steps</h3>
-        <ul id="stepsList">
-            ${stepsHtml}
-        </ul>
+
         <script>
             const vscode = acquireVsCodeApi();
-            function buildCommandLine() {
-                let args = [];
-                if(document.getElementById('profile').value) args.push('--profile=' + document.getElementById('profile').value);
-                if(document.getElementById('system').value) args.push('--system=' + document.getElementById('system').value);
-                if(document.getElementById('timeout').value) args.push('--timeout=' + document.getElementById('timeout').value);
-                if(document.getElementById('iterations').value) args.push('--iterations=' + document.getElementById('iterations').value);
-                if(document.getElementById('exitWait').value) args.push('--exit-wait=' + document.getElementById('exitWait').value);
-                if(document.getElementById('logger').value) args.push('--logger=' + document.getElementById('logger').value);
-                if(document.getElementById('logToFile').checked) args.push('--log-to-file');
-                if(document.getElementById('cleanFlag').checked) args.push('--clean');
-                if(document.getElementById('debug').checked) args.push('--debug');
-                if(document.getElementById('proxyApi').value) args.push('--proxy-api=' + document.getElementById('proxyApi').value);
-                if(document.getElementById('packageStore').value) args.push('--package-store=' + document.getElementById('packageStore').value);
-                if(document.getElementById('eventHub').value) args.push('--event-hub=' + document.getElementById('eventHub').value);
-                if(document.getElementById('experimentId').value) args.push('--experiment-id=' + document.getElementById('experimentId').value);
-                if(document.getElementById('clientId').value) args.push('--client-id=' + document.getElementById('clientId').value);
-                if(document.getElementById('metadata').value) args.push('--metadata=' + document.getElementById('metadata').value);
-                if(document.getElementById('parameters').value) args.push('--parameters=' + document.getElementById('parameters').value);
-                if(document.getElementById('port').value) args.push('--port=' + document.getElementById('port').value);
-                if(document.getElementById('ipAddress').value) args.push('--ip-address=' + document.getElementById('ipAddress').value);
-                if(document.getElementById('diag').checked) args.push('--diag');
-                if(document.getElementById('help').checked) args.push('--help');
-                if(document.getElementById('version').checked) args.push('--version');
-                if(document.getElementById('monitor').checked) args.push('--monitor');
-                let additional = document.getElementById('additionalArgs').value;
-                if(additional) {
-                    args = args.concat(additional.split('\n').map(x => x.trim()).filter(x => x));
+            const form = document.getElementById('runForm');
+            const profileSelect = document.getElementById('profile');
+            const profileCustom = document.getElementById('profileCustom');
+            const loadDefaultsBtn = document.getElementById('loadDefaultsBtn');
+            const machineSelect = document.getElementById('machine');
+
+            // Show/hide custom profile input and auto-load defaults
+            profileSelect.addEventListener('change', () => {
+                if (profileSelect.value === 'custom') {
+                    profileCustom.style.display = '';
+                } else {
+                    profileCustom.style.display = 'none';
                 }
-                document.getElementById('toolArgs').value = args.join(' ');
-            }
-            document.getElementById('profile').addEventListener('input', buildCommandLine);
-            document.getElementById('system').addEventListener('input', buildCommandLine);
-            document.getElementById('timeout').addEventListener('input', buildCommandLine);
-            document.getElementById('iterations').addEventListener('input', buildCommandLine);
-            document.getElementById('exitWait').addEventListener('input', buildCommandLine);
-            document.getElementById('logger').addEventListener('input', buildCommandLine);
-            document.getElementById('logToFile').addEventListener('change', buildCommandLine);
-            document.getElementById('cleanFlag').addEventListener('change', buildCommandLine);
-            document.getElementById('debug').addEventListener('change', buildCommandLine);
-            document.getElementById('proxyApi').addEventListener('input', buildCommandLine);
-            document.getElementById('packageStore').addEventListener('input', buildCommandLine);
-            document.getElementById('eventHub').addEventListener('input', buildCommandLine);
-            document.getElementById('experimentId').addEventListener('input', buildCommandLine);
-            document.getElementById('clientId').addEventListener('input', buildCommandLine);
-            document.getElementById('metadata').addEventListener('input', buildCommandLine);
-            document.getElementById('parameters').addEventListener('input', buildCommandLine);
-            document.getElementById('port').addEventListener('input', buildCommandLine);
-            document.getElementById('ipAddress').addEventListener('input', buildCommandLine);
-            document.getElementById('diag').addEventListener('change', buildCommandLine);
-            document.getElementById('help').addEventListener('change', buildCommandLine);
-            document.getElementById('version').addEventListener('change', buildCommandLine);
-            document.getElementById('monitor').addEventListener('change', buildCommandLine);
-            document.getElementById('additionalArgs').addEventListener('input', buildCommandLine);
-            buildCommandLine();
-            document.getElementById('runForm').addEventListener('submit', function(e) {
+                // Auto-load defaults for known profiles
+                if (profileSelect.value === 'PERF-IO-DISKSPD.json') {
+                    document.getElementById('timeout').value = '10';
+                    document.getElementById('exitWait').value = '2';
+                    document.getElementById('parameters').value = '--block-size=4K --duration=60 --threads=4';
+                }
+                // Add more profiles here as needed
+            });
+
+            // Load Defaults button logic
+            loadDefaultsBtn.addEventListener('click', () => {
+                if (profileSelect.value === 'PERF-IO-DISKSPD.json') {
+                    document.getElementById('timeout').value = '10';
+                    document.getElementById('exitWait').value = '2';
+                    document.getElementById('parameters').value = '--block-size=4K --duration=60 --threads=4';
+                }
+                // Add more profiles here as needed
+            });
+
+            form.addEventListener('submit', (e) => {
                 e.preventDefault();
+                const formData = new FormData(form);
+                const data = Object.fromEntries(formData.entries());
+                // Use custom profile if selected
+                if (profileSelect.value === 'custom') {
+                    data.profile = profileCustom.value;
+                } else {
+                    data.profile = profileSelect.value;
+                }
+                // Convert checkbox values to booleans
+                data.logToFile = formData.get('logToFile') === 'on';
+                data.clean = formData.get('clean') === 'on';
+                data.debug = formData.get('debug') === 'on';
+                data.remoteTargetDir = document.getElementById('remoteTargetDir').value;
                 vscode.postMessage({
                     command: 'run',
-                    machineIp: document.getElementById('machineIp').value,
-                    packagePath: document.getElementById('packagePath').value,
-                    platform: document.getElementById('platform').value,
-                    toolArgs: document.getElementById('toolArgs').value.trim()
+                    ...data
                 });
-            });
-            document.getElementById('cancelBtn').addEventListener('click', function() {
-                vscode.postMessage({ command: 'cancel' });
-            });
-            window.addEventListener('message', function(event) {
-                var message = event.data;
-                if (message.command === 'updateSteps') {
-                    var stepsList = document.getElementById('stepsList');
-                    var html = '';
-                    for (var i = 0; i < message.steps.length; i++) {
-                        var step = message.steps[i];
-                        html += '<li class="step-item ' + step.status + '">' + step.label + ': ' + step.status + (step.detail ? ' - ' + step.detail : '') + '</li>';
-                    }
-                    stepsList.innerHTML = html;
-                }
             });
         </script>
     </body>
-    </html>
-    `;
+    </html>`;
 }
 
 export function showRunDetailsWebview(context: vscode.ExtensionContext, run: any) {

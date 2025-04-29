@@ -1,5 +1,6 @@
 {
   "name": "virtual-client",
+  "publisher": "rudraptpsingh",
   "displayName": "Virtual Client",
   "description": "Runs Virtual Client tool on a remote machine",
   "version": "0.0.1",
@@ -10,12 +11,15 @@
     "Other"
   ],
   "main": "./out/extension.js",
+  "activationEvents": [
+    "*"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rudraptpsingh/VirtualClient-VSCode/"
+  },
   "contributes": {
     "commands": [
-      {
-        "command": "virtual-client.addMachine",
-        "title": "Add a Remote Machine"
-      },
       {
         "command": "virtual-client.streamLogs",
         "title": "Stream Logs"
@@ -41,8 +45,16 @@
         "title": "Open Log File"
       },
       {
-        "command": "virtual-client.deleteMachine",
+        "command": "machines.deleteMachine",
         "title": "Delete Machine"
+      },
+      {
+        "command": "virtual-client.clearScheduledRuns",
+        "title": "Clear"
+      },
+      {
+        "command": "virtual-client.openExtensionLogFile",
+        "title": "View Run Log"
       }
     ],
     "viewsContainers": {
@@ -91,9 +103,15 @@
           "group": "navigation@1"
         },
         {
-          "command": "virtual-client.deleteMachine",
+          "command": "machines.deleteMachine",
           "when": "view == machinesView && viewItem == machine",
           "group": "inline"
+        },
+        {
+          "command": "virtual-client.openExtensionLogFile",
+          "when": "view == virtualClientView && viewItem == scheduledRun",
+          "group": "navigation@2",
+          "title": "View Run Log"
         }
       ],
       "view/title": [
@@ -106,6 +124,12 @@
           "command": "virtual-client.runVirtualClientWebview",
           "when": "view == virtualClientView",
           "group": "navigation@1"
+        },
+        {
+          "command": "virtual-client.clearScheduledRuns",
+          "when": "view == virtualClientView",
+          "group": "navigation@2",
+          "title": "Clear"
         }
       ]
     }
@@ -116,21 +140,22 @@
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src",
-    "test": "vscode-test"
+    "test": "node ./out/test/runTest.js"
   },
   "devDependencies": {
+    "@types/glob": "^8.1.0",
     "@types/mocha": "^10.0.10",
-    "@types/node": "20.x",
+    "@types/node": "^20.0.0",
     "@types/vscode": "^1.99.0",
-    "@typescript-eslint/eslint-plugin": "^8.28.0",
-    "@typescript-eslint/parser": "^8.28.0",
-    "@vscode/test-cli": "^0.0.10",
-    "@vscode/test-electron": "^2.4.1",
-    "eslint": "^9.23.0",
-    "typescript": "^5.8.2"
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "@vscode/test-electron": "^2.5.2",
+    "eslint": "^8.0.0",
+    "mocha": "^11.1.0",
+    "typescript": "^5.0.0"
   },
   "dependencies": {
-    "@types/ssh2": "^1.15.5",
-    "ssh2": "^1.16.0"
+    "ssh2": "^1.14.0",
+    "unzipper": "^0.10.11"
   }
 }
