@@ -258,12 +258,6 @@ export function getRunVirtualClientWebviewContent(machines: any[], lastParams?: 
             </div>
 
             <div class="form-group">
-                <label for="remoteTargetDir">Remote Target Directory:</label>
-                <span class="desc">Directory on the remote machine where the package will be uploaded and extracted (e.g., /home/remoteuser/vc).</span>
-                <input type="text" id="remoteTargetDir" name="remoteTargetDir" value="${lastParams?.remoteTargetDir || ''}" required>
-            </div>
-
-            <div class="form-group">
                 <label>Options:</label>
                 <div class="checkbox-group">
                     <div class="checkbox-item">
@@ -332,7 +326,6 @@ export function getRunVirtualClientWebviewContent(machines: any[], lastParams?: 
                 data.logToFile = formData.get('logToFile') === 'on';
                 data.clean = formData.get('clean') === 'on';
                 data.debug = formData.get('debug') === 'on';
-                data.remoteTargetDir = document.getElementById('remoteTargetDir').value;
                 vscode.postMessage({
                     command: 'run',
                     ...data

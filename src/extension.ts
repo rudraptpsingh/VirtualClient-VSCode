@@ -159,6 +159,9 @@ function sanitizeLabel(label: string): string {
     return label.replace(/[\\/:*?"<>|,]/g, '-');
 }
 
+// Add at the top, after imports
+let defaultRemoteTargetDir: string | undefined;
+
 // This method is called when your extension is activated
 export async function activate(context: vscode.ExtensionContext) {
     try {
@@ -306,30 +309,40 @@ export async function activate(context: vscode.ExtensionContext) {
                     if (treeViewProvider && typeof treeViewProvider.refresh === 'function') {
                         treeViewProvider.refresh();
                     }
-                    // Delete all log files from both logs and virtualclient-vscode-logs directories
-                    const logsDir1 = path.join(context.globalStorageUri.fsPath, 'logs');
+                    // Helper to recursively delete a directory
+                    function deleteDirectoryRecursive(dirPath: string) {
+                        if (fs.existsSync(dirPath)) {
+                            fs.readdirSync(dirPath).forEach((file) => {
+                                const curPath = path.join(dirPath, file);
+                                if (fs.lstatSync(curPath).isDirectory()) {
+                                    deleteDirectoryRecursive(curPath);
+                                    try { fs.rmdirSync(curPath); } catch {}
+                                } else {
+                                    try { fs.unlinkSync(curPath); } catch {}
+                                }
+                            });
+                        }
+                    }
                     let failedDeletes: string[] = [];
+                    // Delete all log files and subdirectories from both logs and virtualclient-vscode-logs directories
+                    const logsDir1 = path.join(context.globalStorageUri.fsPath, 'logs');
                     if (fs.existsSync(logsDir1)) {
-                        fs.readdirSync(logsDir1).forEach(f => {
-                            try {
-                                fs.unlinkSync(path.join(logsDir1, f));
-                            } catch (err) {
-                                failedDeletes.push(path.join(logsDir1, f));
-                            }
-                        });
+                        try {
+                            deleteDirectoryRecursive(logsDir1);
+                        } catch (err) {
+                            failedDeletes.push(logsDir1);
+                        }
                     }
                     const logsDir2 = path.join(context.globalStoragePath, 'virtualclient-vscode-logs');
                     if (fs.existsSync(logsDir2)) {
-                        fs.readdirSync(logsDir2).forEach(f => {
-                            try {
-                                fs.unlinkSync(path.join(logsDir2, f));
-                            } catch (err) {
-                                failedDeletes.push(path.join(logsDir2, f));
-                            }
-                        });
+                        try {
+                            deleteDirectoryRecursive(logsDir2);
+                        } catch (err) {
+                            failedDeletes.push(logsDir2);
+                        }
                     }
                     if (failedDeletes.length > 0) {
-                        vscode.window.showWarningMessage('Some log files could not be deleted: ' + failedDeletes.join(', '));
+                        vscode.window.showWarningMessage('Some log files or directories could not be deleted: ' + failedDeletes.join(', '));
                     }
                     vscode.window.showInformationMessage('All scheduled runs and logs have been cleared.');
                 }
@@ -374,6 +387,24 @@ export async function activate(context: vscode.ExtensionContext) {
                 if (!uri) return;
                 fs.copyFileSync(zipPath, uri.fsPath);
                 vscode.window.showInformationMessage(`logs.zip saved to ${uri.fsPath}`);
+            }),
+            vscode.commands.registerCommand('virtual-client.setDefaultRemoteTargetDir', async () => {
+                const newDir = await vscode.window.showInputBox({
+                    prompt: 'Enter the default remote target directory (e.g., C:\\VirtualClientScheduler or /home/username/VirtualClientScheduler)',
+                    value: defaultRemoteTargetDir
+                });
+                if (newDir && newDir.trim()) {
+                    defaultRemoteTargetDir = newDir.trim();
+                    await context.globalState.update('defaultRemoteTargetDir', defaultRemoteTargetDir);
+                    vscode.window.showInformationMessage(`Default remote target directory set to: ${defaultRemoteTargetDir}`);
+                }
+            }),
+            vscode.commands.registerCommand('virtual-client.refreshMachineStatus', async () => {
+                if (machinesProvider && typeof machinesProvider.refreshConnectionStatus === 'function') {
+                    vscode.window.showInformationMessage('Refreshing machine connection status...');
+                    await machinesProvider.refreshConnectionStatus();
+                    vscode.window.showInformationMessage('Machine connection status updated.');
+                }
             })
         ];
 
@@ -382,6 +413,19 @@ export async function activate(context: vscode.ExtensionContext) {
         // Disable telemetry
         const telemetryConfig = vscode.workspace.getConfiguration('telemetry');
         telemetryConfig.update('enableTelemetry', false, vscode.ConfigurationTarget.Global);
+
+        // Load default remote target dir from globalState or set platform defaults
+        const userDefault = context.globalState.get<string>('defaultRemoteTargetDir');
+        if (userDefault) {
+            defaultRemoteTargetDir = userDefault;
+        } else {
+            // Set a sensible default for the current platform
+            if (process.platform === 'win32') {
+                defaultRemoteTargetDir = 'C://VirtualClientScheduler';
+            } else {
+                defaultRemoteTargetDir = `/home/${os.userInfo().username}/VirtualClientScheduler`;
+            }
+        }
 
         console.log('Extension "virtual-client" is now active!');
     } catch (error) {
@@ -624,10 +668,6 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                     vscode.window.showErrorMessage('Local package path is required.');
                     throw new Error('Local package path is required.');
                 }
-                if (!message.remoteTargetDir || typeof message.remoteTargetDir !== 'string' || !message.remoteTargetDir.trim()) {
-                    vscode.window.showErrorMessage('Remote target directory is required.');
-                    throw new Error('Remote target directory is required.');
-                }
                 if (!message.machineIp || typeof message.machineIp !== 'string' || !message.machineIp.trim()) {
                     vscode.window.showErrorMessage('Machine IP is required.');
                     throw new Error('Machine IP is required.');
@@ -638,17 +678,23 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                     vscode.window.showErrorMessage('Platform is not set for the selected machine.');
                     throw new Error('Platform is not set for the selected machine.');
                 }
-
                 const isWindows = platform.startsWith('win');
-
+                // Set the remote target directory automatically
+                let remoteTargetDir: string;
+                if (defaultRemoteTargetDir) {
+                    remoteTargetDir = defaultRemoteTargetDir;
+                } else if (isWindows) {
+                    remoteTargetDir = 'C://VirtualClientScheduler';
+                } else {
+                    remoteTargetDir = `/home/${os.userInfo().username}/VirtualClientScheduler`;
+                }
                 const credentials = await machinesProvider.getMachineCredentials(message.machineIp);
                 if (!credentials) {
                     throw new Error('Machine credentials not found');
                 }
-
-                // Update global state with last parameters
-                await context.globalState.update('lastParameters', message);
-
+                // Update global state with last parameters (do not include remoteTargetDir)
+                const { remoteTargetDir: _removed, ...paramsToSave } = message;
+                await context.globalState.update('lastParameters', paramsToSave);
                 // Create a new run item
                 const runItem = scheduledRunsProvider.addRun(
                     machine.ip,
@@ -672,7 +718,6 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                     message.debug,
                     steps
                 );
-
                 // --- LOG FILE SETUP ---
                 const logsDir = path.join(context.globalStorageUri.fsPath, 'logs');
                 if (!fs.existsSync(logsDir)) {
@@ -691,10 +736,8 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                 };
                 logToFile?.(`Scheduled run started for ${runItem.label}`);
                 // --- END LOG FILE SETUP ---
-
                 // Register the connection for cancellation
                 runCancelFlags[runItem.label] = false;
-
                 resources.conn = new ssh2.Client();
                 runConnections[runItem.label] = resources.conn;
                 resources.conn.on('ready', () => {
@@ -711,7 +754,6 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                             return;
                         }
                         resources.sftp = sftp;
-
                         // Execute steps in sequence
                         const executeSteps = async () => {
                             try {
@@ -721,15 +763,26 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                                 if (runItem.steps[0].substeps && runItem.steps[0].substeps[0]) { runItem.steps[0].substeps[0].status = 'running'; scheduledRunsProvider.update(); }
                                 logToFile?.('Step 1: Setup Machine > Create Remote Directory');
                                 try {
-                                    await sftpMkdirRecursive(sftp, message.remoteTargetDir);
-                                    if (runItem.steps[0].substeps && runItem.steps[0].substeps[0]) { runItem.steps[0].substeps[0].status = 'success'; scheduledRunsProvider.update(); }
+                                    await sftpMkdirRecursive(sftp, remoteTargetDir);
+                                    if (runItem.steps[0].substeps && runItem.steps[0].substeps[0]) { 
+                                        runItem.steps[0].substeps[0].status = 'success'; 
+                                        scheduledRunsProvider.update(); 
+                                    }
                                     logToFile?.('Step 1: Setup Machine > Create Remote Directory completed');
                                 } catch (err) {
-                                    logToFile?.(`Step 0 (Initialize run) failed: ${err instanceof Error ? err.message : err}`);
-                                    vscode.window.showErrorMessage(`Step 0 (Initialize run) failed: ${err instanceof Error ? err.message : err}`);
+                                    const detail = `Step 0 (Initialize run) failed: ${err instanceof Error ? err.message : err}`;
+                                    logToFile?.(detail);
+                                    vscode.window.showErrorMessage(detail);
+                                    // Mark the substep and parent step as error
+                                    if (runItem.steps[0].substeps && runItem.steps[0].substeps[0]) {
+                                        runItem.steps[0].substeps[0].status = 'error';
+                                        runItem.steps[0].substeps[0].detail = detail;
+                                    }
+                                    runItem.steps[0].status = 'error';
+                                    runItem.steps[0].detail = detail;
+                                    scheduledRunsProvider.update();
                                     throw err;
                                 }
-
                                 // Substep 0.1: Upload Package
                                 if (runItem.steps[0].substeps && runItem.steps[0].substeps[1]) { runItem.steps[0].substeps[1].status = 'running'; scheduledRunsProvider.update(); }
                                 logToFile?.('Step 1: Setup Machine > Upload Package');
@@ -742,11 +795,13 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                                     vscode.window.showErrorMessage(`Step 0.1 (Upload package) failed: ${detail}`);
                                     throw new Error(detail);
                                 }
-                                const remotePackagePath = path.posix.join(message.remoteTargetDir, path.basename(message.packagePath));
+                                const remotePackagePath = isWindows
+                                    ? path.win32.join(remoteTargetDir, path.basename(message.packagePath))
+                                    : path.posix.join(remoteTargetDir, path.basename(message.packagePath));
                                 // Fix extracted directory path logic:
                                 const packageName = path.basename(message.packagePath, path.extname(message.packagePath));
-                                const extractDestDir = path.posix.join(message.remoteTargetDir.replace(/\\/g, '/'), packageName);
-                                const extractDestDirWin = path.win32.join(message.remoteTargetDir, packageName);
+                                const extractDestDir = path.posix.join(remoteTargetDir.replace(/\\/g, '/'), packageName);
+                                const extractDestDirWin = path.win32.join(remoteTargetDir, packageName);
                                 const remoteExtractDir = isWindows ? extractDestDirWin : extractDestDir;
                                 logToFile?.(`[DEBUG] remotePackagePath: ${remotePackagePath}`);
                                 logToFile?.(`[DEBUG] remoteExtractDir: ${remoteExtractDir}`);

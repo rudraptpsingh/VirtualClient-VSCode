@@ -12,12 +12,25 @@ export class MachinesProvider implements vscode.TreeDataProvider<MachineItem> {
     private _onDidChangeTreeData: vscode.EventEmitter<MachineItem | undefined | void> = new vscode.EventEmitter<MachineItem | undefined | void>();
     readonly onDidChangeTreeData: vscode.Event<MachineItem | undefined | void> = this._onDidChangeTreeData.event;
     private context: vscode.ExtensionContext;
+    private machineStatus: { [ip: string]: 'unknown' | 'connected' | 'unreachable' | 'fetching' } = {};
 
     constructor(context: vscode.ExtensionContext) {
         this.context = context;
     }
 
     getTreeItem(element: MachineItem): vscode.TreeItem {
+        // Set icon based on connection status
+        const status = this.machineStatus[element.ip] || 'unknown';
+        // If status is unknown and we're currently fetching, show a spinner
+        if (status === 'fetching') {
+            element.iconPath = new vscode.ThemeIcon('loading~spin'); // spinning indicator
+        } else if (status === 'connected') {
+            element.iconPath = new vscode.ThemeIcon('circle-filled', new vscode.ThemeColor('testing.iconPassed')); // green
+        } else if (status === 'unreachable') {
+            element.iconPath = new vscode.ThemeIcon('circle-filled', new vscode.ThemeColor('testing.iconFailed')); // red
+        } else {
+            element.iconPath = new vscode.ThemeIcon('circle-outline', new vscode.ThemeColor('testing.iconQueued')); // amber/unknown
+        }
         return element;
     }
 
@@ -27,7 +40,7 @@ export class MachinesProvider implements vscode.TreeDataProvider<MachineItem> {
 
         for (const machine of machines) {
             const credentials = await this.getMachineCredentials(machine.ip);
-            machineItems.push(new MachineItem(
+            const item = new MachineItem(
                 machine.label,
                 machine.ip,
                 vscode.TreeItemCollapsibleState.None,
@@ -35,7 +48,9 @@ export class MachinesProvider implements vscode.TreeDataProvider<MachineItem> {
                 credentials?.username,
                 credentials?.password,
                 machine.platform
-            ));
+            );
+            item.connectionStatus = this.machineStatus[machine.ip] || 'unknown';
+            machineItems.push(item);
         }
 
         return machineItems;
@@ -111,10 +126,72 @@ export class MachinesProvider implements vscode.TreeDataProvider<MachineItem> {
             throw error;
         }
     }
+
+    async refreshConnectionStatus(): Promise<void> {
+        const machines = this.context.globalState.get<SharedMachine[]>('machines', []);
+        for (const machine of machines) {
+            this.machineStatus[machine.ip] = 'fetching';
+        }
+        this.refresh();
+        for (const machine of machines) {
+            const credentials = await this.getMachineCredentials(machine.ip);
+            if (!credentials) {
+                this.machineStatus[machine.ip] = 'unreachable';
+                this.refresh();
+                continue;
+            }
+            try {
+                const ssh2 = require('ssh2');
+                await new Promise((resolve, reject) => {
+                    const conn = new ssh2.Client();
+                    let finished = false;
+                    conn.on('ready', () => {
+                        finished = true;
+                        this.machineStatus[machine.ip] = 'connected';
+                        conn.end();
+                        this.refresh();
+                        resolve(true);
+                    }).on('error', () => {
+                        if (!finished) {
+                            this.machineStatus[machine.ip] = 'unreachable';
+                            this.refresh();
+                            finished = true;
+                            resolve(false);
+                        }
+                    }).on('end', () => {
+                        if (!finished) {
+                            this.machineStatus[machine.ip] = 'unreachable';
+                            this.refresh();
+                            finished = true;
+                            resolve(false);
+                        }
+                    }).connect({
+                        host: machine.ip,
+                        username: credentials.username,
+                        password: credentials.password,
+                        readyTimeout: 5000
+                    });
+                    setTimeout(() => {
+                        if (!finished) {
+                            this.machineStatus[machine.ip] = 'unreachable';
+                            this.refresh();
+                            finished = true;
+                            conn.end();
+                            resolve(false);
+                        }
+                    }, 6000);
+                });
+            } catch {
+                this.machineStatus[machine.ip] = 'unreachable';
+                this.refresh();
+            }
+        }
+    }
 }
 
 // Export MachineItem if not already exported elsewhere
 export class MachineItem extends vscode.TreeItem {
+    connectionStatus: 'unknown' | 'connected' | 'unreachable' | 'fetching' = 'unknown';
     constructor(
         public readonly label: string,
         public readonly ip: string,

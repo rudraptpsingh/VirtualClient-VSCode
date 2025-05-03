@@ -55,6 +55,10 @@
       {
         "command": "virtual-client.openExtensionLogFile",
         "title": "View Run Log"
+      },
+      {
+        "command": "virtual-client.refreshMachineStatus",
+        "title": "Refresh Machine Status"
       }
     ],
     "viewsContainers": {
@@ -130,6 +134,12 @@
           "when": "view == virtualClientView",
           "group": "navigation@2",
           "title": "Clear"
+        },
+        {
+          "command": "virtual-client.refreshMachineStatus",
+          "when": "view == machinesView",
+          "group": "navigation@2",
+          "icon": "$(refresh)"
         }
       ]
     }
