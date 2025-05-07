@@ -18,6 +18,16 @@ export class VirtualClientTreeViewProvider implements vscode.TreeDataProvider<Ma
         this.scheduledRunsProvider.onDidChangeTreeData(() => this._onDidChangeTreeData.fire(undefined));
     }
 
+    private logToFile(msg: string) {
+        const logDir = this.context.globalStoragePath;
+        const logFile = require('path').join(logDir, 'virtualClientTreeViewProvider.log');
+        const fs = require('fs');
+        const line = `[${new Date().toISOString()}] ${msg}\n`;
+        try {
+            fs.appendFileSync(logFile, line);
+        } catch {}
+    }
+
     public get machines(): MachineItem[] {
         // Always fetch the latest machines from global state
         const machines = this.context.globalState.get<{ label: string, ip: string }[]>('machines', []);
@@ -47,19 +57,19 @@ export class VirtualClientTreeViewProvider implements vscode.TreeDataProvider<Ma
 
     getChildren(element?: MachineItem | ScheduledRunItem | ScheduledRunStep): Promise<(MachineItem | ScheduledRunItem | ScheduledRunStep)[]> {
         if (!element) {
-            console.log('Getting root children');
+            this.logToFile('Getting root children');
             // Only show Scheduled Runs node in Virtual Client view
             const scheduledRunsNode = new MachineItem('Scheduled Runs', '', vscode.TreeItemCollapsibleState.Collapsed, 'scheduledRunsRoot');
             // Cast to ScheduledRunItem | ScheduledRunStep to satisfy type
             return Promise.resolve([scheduledRunsNode as unknown as ScheduledRunItem]);
         }
         if (element instanceof MachineItem && element.contextValue === 'scheduledRunsRoot') {
-            console.log('Getting scheduled runs');
+            this.logToFile('Getting scheduled runs');
             // Return scheduled runs as children
             return this.scheduledRunsProvider.getChildren() as Promise<ScheduledRunItem[]>;
         }
         if (element instanceof ScheduledRunItem) {
-            console.log('Getting steps for run:', element.label);
+            this.logToFile(`Getting steps for run: ${element.label}`);
             return this.scheduledRunsProvider.getChildren(element) as Promise<ScheduledRunStep[]>;
         }
         if (element instanceof ScheduledRunStep && element.substeps) {
@@ -69,7 +79,11 @@ export class VirtualClientTreeViewProvider implements vscode.TreeDataProvider<Ma
     }
 
     refresh(): void {
-        this._onDidChangeTreeData.fire(undefined);
+        try {
+            this._onDidChangeTreeData.fire();
+        } catch (error) {
+            this.logToFile(`Failed to refresh tree data: ${error}`);
+        }
     }
 
     getTreeViewActions(): vscode.Command[] {

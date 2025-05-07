@@ -1,12 +1,13 @@
 // Node core modules
 import * as vscode from 'vscode';
 import * as fs from 'fs';
+import * as fsPromises from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 
 // NPM packages
 import * as ssh2 from 'ssh2';
-import { spawn } from 'child_process';
+import * as unzipper from 'unzipper';
 
 // Local files
 import { getAddMachineWebviewContent, getRunVirtualClientWebviewContent, showRunDetailsWebview } from './webviewContent';
@@ -65,12 +66,6 @@ class RunResourceManager implements ResourceManager {
     }
 }
 
-// Global resource manager
-let globalResourceManager: RunResourceManager | undefined;
-
-// Shared state
-let sharedMachines: { label: string, ip: string }[] = [];
-
 // Interface for webview messages
 interface AddMachineMessage {
     command: 'add' | 'cancel';
@@ -87,61 +82,56 @@ interface RunStep {
     detail?: string;
 }
 
-// Helper functions for run persistence
-interface PersistentRun {
-    id: string;
-    label: string;
-    steps: RunStep[];
-    logs: string[];
-    started: number;
-    finished?: number;
-}
-
-function getPersistentRuns(context: vscode.ExtensionContext): PersistentRun[] {
-    return context.globalState.get<PersistentRun[]>('persistentRuns', []);
-}
-
-function savePersistentRuns(context: vscode.ExtensionContext, runs: PersistentRun[]) {
-    context.globalState.update('persistentRuns', runs);
-}
-
 // Helper functions for log management
-export function loadScheduledRuns(context: vscode.ExtensionContext): any[] {
-    LOGS_DIR = path.join(context.globalStoragePath, 'virtualclient-vscode-logs');
-    if (!fs.existsSync(LOGS_DIR)) {
-        fs.mkdirSync(LOGS_DIR, { recursive: true });
+export async function loadScheduledRuns(context: vscode.ExtensionContext): Promise<any[]> {
+    try {
+        const files = (await fsPromises.readdir(LOGS_DIR)).filter(f => f.endsWith('.json'));
+        const runsData = await Promise.all(files.map(async f => {
+            const filePath = path.join(LOGS_DIR, f);
+            try {
+                const content = await fsPromises.readFile(filePath, 'utf-8');
+                return JSON.parse(content);
+            } catch (error) {
+                console.error(`Failed to read or parse scheduled run file ${filePath}:`, error);
+                return null;
+            }
+        }));
+        return runsData.filter(run => run !== null);
+    } catch (error) {
+        console.error('Failed to load scheduled runs:', error);
+        return [];
     }
-    const files = fs.readdirSync(LOGS_DIR).filter(f => f.endsWith('.json'));
-    return files.map(f => {
-        const content = fs.readFileSync(path.join(LOGS_DIR, f), 'utf-8');
-        return JSON.parse(content);
-    });
 }
 
-export function saveScheduledRun(context: vscode.ExtensionContext, run: any) {
-    LOGS_DIR = path.join(context.globalStoragePath, 'virtualclient-vscode-logs');
-    // Create the directory structure recursively
-    fs.mkdirSync(LOGS_DIR, { recursive: true });
-    
-    // Create a timestamp-based filename
+export async function saveScheduledRun(context: vscode.ExtensionContext, run: any): Promise<void> {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const filename = `${timestamp}_${run.machineLabel}(${run.machineIp}).json`;
+    const machineLabel = typeof run.machineLabel === 'string' ? sanitizeLabel(run.machineLabel) : 'unknown_label';
+    const machineIp = typeof run.machineIp === 'string' ? run.machineIp : 'unknown_ip';
+    const filename = `${timestamp}_${machineLabel}(${machineIp}).json`;
     const file = path.join(LOGS_DIR, filename);
-    
     try {
-        fs.writeFileSync(file, JSON.stringify(run, null, 2));
+        await fsPromises.writeFile(file, JSON.stringify(run, null, 2));
+        console.log(`Scheduled run saved to ${file}`);
     } catch (error) {
         console.error('Failed to save run:', error);
         vscode.window.showErrorMessage(`Failed to save run: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
 }
 
-export function clearLogsFolder(context: vscode.ExtensionContext) {
-    LOGS_DIR = path.join(context.globalStoragePath, 'virtualclient-vscode-logs');
-    if (fs.existsSync(LOGS_DIR)) {
-        fs.readdirSync(LOGS_DIR).forEach(f => {
-            fs.unlinkSync(path.join(LOGS_DIR, f));
-        });
+export async function clearLogsFolder(context: vscode.ExtensionContext): Promise<void> {
+    try {
+        await fsPromises.access(LOGS_DIR);
+        const files = await fsPromises.readdir(LOGS_DIR);
+        for (const f of files) {
+            try {
+                await fsPromises.unlink(path.join(LOGS_DIR, f));
+            } catch (unlinkError) {
+                console.warn(`Failed to delete log file ${f}:`, unlinkError);
+            }
+        }
+        vscode.window.showInformationMessage('Scheduled run history files cleared from LOGS_DIR.');
+    } catch (error) {
+        console.info('Log folder for scheduled runs either does not exist or could not be cleared:', error);
     }
 }
 
@@ -169,8 +159,17 @@ export async function activate(context: vscode.ExtensionContext) {
         scheduledRunsProvider = new ScheduledRunsProvider();
         machinesProvider = new MachinesProvider(context);
         
+        // Initialize LOGS_DIR and ensure it exists
+        LOGS_DIR = path.join(context.globalStoragePath, 'virtualclient-vscode-logs');
+        try {
+            await fsPromises.mkdir(LOGS_DIR, { recursive: true });
+            console.log(`LOGS_DIR ensured at: ${LOGS_DIR}`);
+        } catch (err) {
+            console.error(`Failed to create LOGS_DIR at ${LOGS_DIR}:`, err);
+            vscode.window.showErrorMessage(`Critical error: Failed to initialize logging directory. Extension might not function correctly.`);
+        }
         // Load any existing scheduled runs
-        const existingRuns = loadScheduledRuns(context);
+        const existingRuns = await loadScheduledRuns(context);
         for (const run of existingRuns) {
             const steps = run.steps.map((step: { label: string, status: 'pending' | 'running' | 'success' | 'error', detail?: string }) => new ScheduledRunStep(step.label, step.status, step.detail));
             scheduledRunsProvider.addRun(
@@ -193,6 +192,10 @@ export async function activate(context: vscode.ExtensionContext) {
                 run.logToFile,
                 run.clean,
                 run.debug,
+                run.dependencies || '',
+                run.iterations || 1,
+                run.logLevel || '',
+                run.failFast || false,
                 steps,
                 run.timestamp ? new Date(run.timestamp) : undefined
             );
@@ -261,8 +264,10 @@ export async function activate(context: vscode.ExtensionContext) {
                         const logsDir = path.join(context.globalStoragePath, 'logs', sanitizeLabel(runLabel));
                         logFilePath = path.join(logsDir, logFileName);
                     }
-                    if (!fs.existsSync(logFilePath)) {
-                        vscode.window.showErrorMessage(`Log file not found: ${logFilePath}`);
+                    try {
+                        await fsPromises.access(logFilePath);
+                    } catch {
+                        vscode.window.showErrorMessage(`Log file not found or inaccessible: ${logFilePath}`);
                         return;
                     }
                     const doc = await vscode.workspace.openTextDocument(logFilePath);
@@ -273,8 +278,10 @@ export async function activate(context: vscode.ExtensionContext) {
                 const logsDir = path.join(context.globalStorageUri.fsPath, 'logs');
                 const safeLabel = runLabel.replace(/[\\/:"*?<>|,]/g, '-');
                 const logFilePath = path.join(logsDir, `${safeLabel}.log`);
-                if (!fs.existsSync(logFilePath)) {
-                    vscode.window.showErrorMessage(`Log file not found: ${logFilePath}`);
+                try {
+                    await fsPromises.access(logFilePath);
+                } catch {
+                    vscode.window.showErrorMessage(`Log file not found or inaccessible: ${logFilePath}`);
                     return;
                 }
                 const doc = await vscode.workspace.openTextDocument(logFilePath);
@@ -289,13 +296,19 @@ export async function activate(context: vscode.ExtensionContext) {
                 vscode.window.showInformationMessage(`Cancelled run: ${runLabel}`);
             }),
             // New command to clear all scheduled runs and logs
-            vscode.commands.registerCommand('virtual-client.clearScheduledRuns', async () => {
-                const confirm = await vscode.window.showWarningMessage(
-                    'Are you sure you want to clear all scheduled runs and logs? This cannot be undone.',
-                    { modal: true },
-                    'Clear'
-                );
-                if (confirm === 'Clear') {
+            vscode.commands.registerCommand('virtual-client.removeAllScheduledRuns', async () => {
+                // Confirmation dialogs are intentionally skipped in test environments (NODE_ENV === 'test', etc.)
+                // to allow automated tests to run without UI interaction.
+                const isTest = process.env.NODE_ENV === 'test' || process.env.VSC_JEST_WORKER === '1' || process.env.VSCODE_TEST === 'true';
+                let confirm: string | undefined = 'Remove All';
+                if (!isTest) {
+                    confirm = await vscode.window.showWarningMessage(
+                        'Are you sure you want to remove all scheduled runs and logs? This cannot be undone.',
+                        { modal: true },
+                        'Remove All'
+                    );
+                }
+                if (confirm === 'Remove All') {
                     // Clear runs from provider using a method if available, otherwise reset and update
                     if (scheduledRunsProvider) {
                         if (typeof scheduledRunsProvider.clear === 'function') {
@@ -310,37 +323,42 @@ export async function activate(context: vscode.ExtensionContext) {
                         treeViewProvider.refresh();
                     }
                     // Helper to recursively delete a directory
-                    function deleteDirectoryRecursive(dirPath: string) {
-                        if (fs.existsSync(dirPath)) {
-                            fs.readdirSync(dirPath).forEach((file) => {
-                                const curPath = path.join(dirPath, file);
-                                if (fs.lstatSync(curPath).isDirectory()) {
-                                    deleteDirectoryRecursive(curPath);
-                                    try { fs.rmdirSync(curPath); } catch {}
+                    async function deleteDirectoryRecursive(dirPath: string, failedDeletes: string[]) {
+                        try {
+                            await fsPromises.access(dirPath);
+                            const entries = await fsPromises.readdir(dirPath, { withFileTypes: true });
+                            for (const entry of entries) {
+                                const curPath = path.join(dirPath, entry.name);
+                                if (entry.isDirectory()) {
+                                    await deleteDirectoryRecursive(curPath, failedDeletes);
+                                    try {
+                                        await fsPromises.rmdir(curPath);
+                                    } catch (e) {
+                                        console.warn(`Failed to rmdir ${curPath}:`, e);
+                                        failedDeletes.push(curPath);
+                                    }
                                 } else {
-                                    try { fs.unlinkSync(curPath); } catch {}
+                                    try {
+                                        await fsPromises.unlink(curPath);
+                                    } catch (e) {
+                                        console.warn(`Failed to unlink ${curPath}:`, e);
+                                        failedDeletes.push(curPath);
+                                    }
                                 }
-                            });
+                            }
+                        } catch (err) {
+                            if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+                                console.warn(`Error accessing ${dirPath} for deletion:`, err);
+                                failedDeletes.push(dirPath);
+                            }
                         }
                     }
                     let failedDeletes: string[] = [];
                     // Delete all log files and subdirectories from both logs and virtualclient-vscode-logs directories
                     const logsDir1 = path.join(context.globalStorageUri.fsPath, 'logs');
-                    if (fs.existsSync(logsDir1)) {
-                        try {
-                            deleteDirectoryRecursive(logsDir1);
-                        } catch (err) {
-                            failedDeletes.push(logsDir1);
-                        }
-                    }
-                    const logsDir2 = path.join(context.globalStoragePath, 'virtualclient-vscode-logs');
-                    if (fs.existsSync(logsDir2)) {
-                        try {
-                            deleteDirectoryRecursive(logsDir2);
-                        } catch (err) {
-                            failedDeletes.push(logsDir2);
-                        }
-                    }
+                    await deleteDirectoryRecursive(logsDir1, failedDeletes);
+                    const logsDir2 = LOGS_DIR;
+                    await deleteDirectoryRecursive(logsDir2, failedDeletes);
                     if (failedDeletes.length > 0) {
                         vscode.window.showWarningMessage('Some log files or directories could not be deleted: ' + failedDeletes.join(', '));
                     }
@@ -355,8 +373,10 @@ export async function activate(context: vscode.ExtensionContext) {
                 const logsDir = path.join(context.globalStorageUri.fsPath, 'logs');
                 const safeLabel = runItem.label.replace(/[\\/:"*?<>|,]/g, '-');
                 const logFilePath = path.join(logsDir, `${safeLabel}.log`);
-                if (!fs.existsSync(logFilePath)) {
-                    vscode.window.showErrorMessage(`Extension log file not found: ${logFilePath}`);
+                try {
+                    await fsPromises.access(logFilePath);
+                } catch {
+                    vscode.window.showErrorMessage(`Extension log file not found or inaccessible: ${logFilePath}`);
                     return;
                 }
                 const doc = await vscode.workspace.openTextDocument(logFilePath);
@@ -376,36 +396,49 @@ export async function activate(context: vscode.ExtensionContext) {
                 }
                 const logsDir = path.join(context.globalStoragePath, 'logs', sanitizeLabel(runLabel));
                 const zipPath = path.join(logsDir, 'logs.zip');
-                if (!fs.existsSync(zipPath)) {
-                    vscode.window.showErrorMessage(`logs.zip not found: ${zipPath}`);
+                try {
+                    await fsPromises.access(zipPath);
+                } catch {
+                    vscode.window.showErrorMessage(`logs.zip not found or inaccessible: ${zipPath}`);
                     return;
                 }
                 const uri = await vscode.window.showSaveDialog({
                     defaultUri: vscode.Uri.file(path.join(os.homedir(), 'logs.zip')),
                     saveLabel: 'Save logs.zip as...'
                 });
-                if (!uri) return;
-                fs.copyFileSync(zipPath, uri.fsPath);
+                if (!uri) { return; }
+                await fsPromises.copyFile(zipPath, uri.fsPath);
                 vscode.window.showInformationMessage(`logs.zip saved to ${uri.fsPath}`);
-            }),
-            vscode.commands.registerCommand('virtual-client.setDefaultRemoteTargetDir', async () => {
-                const newDir = await vscode.window.showInputBox({
-                    prompt: 'Enter the default remote target directory (e.g., C:\\VirtualClientScheduler or /home/username/VirtualClientScheduler)',
-                    value: defaultRemoteTargetDir
-                });
-                if (newDir && newDir.trim()) {
-                    defaultRemoteTargetDir = newDir.trim();
-                    await context.globalState.update('defaultRemoteTargetDir', defaultRemoteTargetDir);
-                    vscode.window.showInformationMessage(`Default remote target directory set to: ${defaultRemoteTargetDir}`);
-                }
             }),
             vscode.commands.registerCommand('virtual-client.refreshMachineStatus', async () => {
                 if (machinesProvider && typeof machinesProvider.refreshConnectionStatus === 'function') {
-                    vscode.window.showInformationMessage('Refreshing machine connection status...');
                     await machinesProvider.refreshConnectionStatus();
-                    vscode.window.showInformationMessage('Machine connection status updated.');
+                    vscode.window.showInformationMessage('Machine status refreshed.');
+                } else {
+                    vscode.window.showWarningMessage('Machines provider not available.');
                 }
-            })
+            }),
+            vscode.commands.registerCommand('virtual-client.removeScheduledRun', async (item: ScheduledRunItem) => {
+                if (!item || !item.runId) {
+                    vscode.window.showErrorMessage('Could not determine run to remove.');
+                    return;
+                }
+                // Confirmation dialogs are intentionally skipped in test environments (NODE_ENV === 'test', etc.)
+                // to allow automated tests to run without UI interaction.
+                const isTest = process.env.NODE_ENV === 'test' || process.env.VSC_JEST_WORKER === '1' || process.env.VSCODE_TEST === 'true';
+                let confirm: string | undefined = 'Remove';
+                if (!isTest) {
+                    confirm = await vscode.window.showWarningMessage(
+                        `Are you sure you want to remove the scheduled run for ${item.label}?`,
+                        { modal: true },
+                        'Remove'
+                    );
+                }
+                if (confirm === 'Remove') {
+                    scheduledRunsProvider.removeRun(item.runId);
+                    vscode.window.showInformationMessage(`Scheduled run for ${item.label} has been removed.`);
+                }
+            }),
         ];
 
         context.subscriptions.push(...disposables);
@@ -421,7 +454,7 @@ export async function activate(context: vscode.ExtensionContext) {
         } else {
             // Set a sensible default for the current platform
             if (process.platform === 'win32') {
-                defaultRemoteTargetDir = 'C://VirtualClientScheduler';
+                defaultRemoteTargetDir = 'C:\\VirtualClientScheduler';
             } else {
                 defaultRemoteTargetDir = `/home/${os.userInfo().username}/VirtualClientScheduler`;
             }
@@ -437,16 +470,11 @@ export async function activate(context: vscode.ExtensionContext) {
 // This method is called when your extension is deactivated
 export function deactivate() {
     // Clean up global resources
-    if (globalResourceManager) {
-        globalResourceManager.cleanup();
-        globalResourceManager = undefined;
-    }
 }
 
 // Command handlers
 async function handleAddMachine(context: vscode.ExtensionContext, machinesProvider: MachinesProvider) {
     const resources = new RunResourceManager();
-    globalResourceManager = resources;
     
     resources.panel = vscode.window.createWebviewPanel(
         'addMachine',
@@ -473,6 +501,7 @@ async function handleAddMachine(context: vscode.ExtensionContext, machinesProvid
                     let machines = context.globalState.get<any[]>('machines', []);
                     machines = machines.map(m => m.ip === ip ? { ...m, platform } : m);
                     await context.globalState.update('machines', machines);
+                    await machinesProvider.refreshConnectionStatusForMachine(ip); // Only refresh the new machine
                     resources.panel?.dispose();
                 } else if (message.command === 'cancel') {
                     resources.panel?.dispose();
@@ -483,38 +512,11 @@ async function handleAddMachine(context: vscode.ExtensionContext, machinesProvid
                         resources.panel?.webview.postMessage({ command: 'platformDetected', platform: '' });
                         return;
                     }
-                    const conn = new ssh2.Client();
-                    conn.on('ready', () => {
-                        conn.exec('uname -s && uname -m || (ver & echo %PROCESSOR_ARCHITECTURE%)', (err: Error | undefined, stream: any) => {
-                            if (err) {
-                                resources.panel?.webview.postMessage({ command: 'platformDetected', platform: '' });
-                                conn.end();
-                                return;
-                            }
-                            let output = '';
-                            stream.on('data', (data: Buffer) => { output += data.toString(); });
-                            stream.on('close', () => {
-                                let platform = '';
-                                if (/Linux/i.test(output)) {
-                                    if (/aarch64|arm64/i.test(output)) { platform = 'linux-arm64'; }
-                                    else if (/x86_64/i.test(output)) { platform = 'linux-x64'; }
-                                } else if (/Windows/i.test(output)) {
-                                    if (/ARM64/i.test(output)) { platform = 'win-arm64'; }
-                                    else if (/AMD64/i.test(output)) { platform = 'win-x64'; }
-                                }
-                                resources.panel?.webview.postMessage({ command: 'platformDetected', platform });
-                                conn.end();
-                            });
-                        });
-                    });
-                    conn.on('error', () => {
-                        resources.panel?.webview.postMessage({ command: 'platformDetected', platform: '' });
-                    });
-                    conn.connect({
-                        host: ip,
-                        username,
-                        password
-                    });
+                    const platform = await detectRemotePlatform(ip, { username, password });
+                    resources.panel?.webview.postMessage({ command: 'platformDetected', platform });
+                    if (ip) {
+                        await machinesProvider.refreshConnectionStatusForMachine(ip); // Only refresh the detected machine
+                    }
                 }
             } catch (error) {
                 vscode.window.showErrorMessage(`Failed to add machine: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -527,15 +529,11 @@ async function handleAddMachine(context: vscode.ExtensionContext, machinesProvid
     // Clean up resources when panel is closed
     resources.panel.onDidDispose(() => {
         resources.cleanup();
-        if (globalResourceManager === resources) {
-            globalResourceManager = undefined;
-        }
     });
 }
 
 export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
     const resources = new RunResourceManager();
-    globalResourceManager = resources;
     
     // Get all machines from the provider
     const machines = await machinesProvider.getChildren();
@@ -547,6 +545,27 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
     // Load last parameters
     const lastParameters = await context.globalState.get('lastParameters', {});
 
+    // Helper to create fresh steps for each run
+    function createRunSteps() {
+        return [
+            new ScheduledRunStep('Setup Machine', 'pending', undefined, [
+                new ScheduledRunStep('Create Remote Directory', 'pending'),
+                new ScheduledRunStep('Upload Package', 'pending')
+            ]),
+            new ScheduledRunStep('Run Virtual Client', 'pending', undefined, [
+                new ScheduledRunStep('Verify Virtual Client Tool', 'pending'),
+                new ScheduledRunStep('Execute Virtual Client Command', 'pending')
+            ])
+        ];
+    }
+
+    const steps = createRunSteps();
+    const webviewSteps = steps.map(step => ({
+        label: step.label as string,
+        status: step.status,
+        detail: step.detail
+    }));
+
     resources.panel = vscode.window.createWebviewPanel(
         'runVirtualClient',
         'Run Virtual Client',
@@ -557,24 +576,6 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
             retainContextWhenHidden: true
         }
     );
-
-    // Define hierarchical steps for the run
-    const steps = [
-        new ScheduledRunStep('Setup Machine', 'pending', undefined, [
-            new ScheduledRunStep('Create Remote Directory', 'pending'),
-            new ScheduledRunStep('Upload Package', 'pending')
-        ]),
-        new ScheduledRunStep('Run Virtual Client', 'pending', undefined, [
-            new ScheduledRunStep('Verify Virtual Client Tool', 'pending'),
-            new ScheduledRunStep('Execute Virtual Client Command', 'pending')
-        ])
-    ];
-
-    const webviewSteps = steps.map(step => ({
-        label: step.label as string,
-        status: step.status,
-        detail: step.detail
-    }));
 
     // Set content security policy
     resources.panel.webview.html = getRunVirtualClientWebviewContent(machineItems, lastParameters, webviewSteps, resources.panel.webview);
@@ -593,44 +594,8 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                     resources.panel?.webview.postMessage({ command: 'platformDetected', platform: '' });
                     return;
                 }
-                const conn = new ssh2.Client();
-                conn.on('ready', () => {
-                    // Try uname -s (Linux), fallback to ver (Windows)
-                    conn.exec('uname -s && uname -m || (ver & echo %PROCESSOR_ARCHITECTURE%)', (err: Error | undefined, stream: any) => {
-                        if (err) {
-                            resources.panel?.webview.postMessage({ command: 'platformDetected', platform: '' });
-                            conn.end();
-                            return;
-                        }
-                        let output = '';
-                        stream.on('data', (data: Buffer) => { output += data.toString(); });
-                        stream.on('close', () => {
-                            let platform = '';
-                            if (/Linux/i.test(output)) {
-                                if (/aarch64|arm64/i.test(output)) { platform = 'linux-arm64'; }
-                                else if (/x86_64/i.test(output)) { platform = 'linux-x64'; }
-                                // Add more as needed
-                            } else if (/Windows/i.test(output)) {
-                                if (/ARM64/i.test(output)) { platform = 'win-arm64'; }
-                                else if (/AMD64/i.test(output)) { platform = 'win-x64'; }
-                                // Add more as needed
-                            }
-                            resources.panel?.webview.postMessage({ command: 'platformDetected', platform });
-                            conn.end();
-                        });
-                    });
-                });
-                conn.on('error', () => {
-                    resources.panel?.webview.postMessage({ command: 'platformDetected', platform: '' });
-                });
-                conn.connect({
-                    host: machine.ip,
-                    username: credentials.username,
-                    password: credentials.password,
-                    algorithms: {
-                        cipher: ['aes128-ctr']
-                    }
-                });
+                const platform = await detectRemotePlatform(machineIp, credentials);
+                resources.panel?.webview.postMessage({ command: 'platformDetected', platform });
             } catch {
                 resources.panel?.webview.postMessage({ command: 'platformDetected', platform: '' });
             }
@@ -684,7 +649,7 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                 if (defaultRemoteTargetDir) {
                     remoteTargetDir = defaultRemoteTargetDir;
                 } else if (isWindows) {
-                    remoteTargetDir = 'C://VirtualClientScheduler';
+                    remoteTargetDir = 'C:\\VirtualClientScheduler';
                 } else {
                     remoteTargetDir = `/home/${os.userInfo().username}/VirtualClientScheduler`;
                 }
@@ -716,12 +681,19 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                     message.logToFile,
                     message.clean,
                     message.debug,
-                    steps
+                    message.dependencies || '',
+                    message.iterations || 1,
+                    message.logLevel || '',
+                    message.failFast || false,
+                    createRunSteps()
                 );
                 // --- LOG FILE SETUP ---
                 const logsDir = path.join(context.globalStorageUri.fsPath, 'logs');
-                if (!fs.existsSync(logsDir)) {
-                    fs.mkdirSync(logsDir, { recursive: true });
+                try {
+                    await fsPromises.mkdir(logsDir, { recursive: true });
+                } catch (error) {
+                    console.error(`Failed to create run-specific log directory ${logsDir}:`, error);
+                    vscode.window.showErrorMessage('Failed to create log directory for the run.');
                 }
                 const safeLabel = runItem.label.replace(/[\\/:"*?<>|,]/g, '-');
                 const logFilePath = path.join(logsDir, `${safeLabel}.log`);
@@ -763,15 +735,45 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                                 if (runItem.steps[0].substeps && runItem.steps[0].substeps[0]) { runItem.steps[0].substeps[0].status = 'running'; scheduledRunsProvider.update(); }
                                 logToFile?.('Step 1: Setup Machine > Create Remote Directory');
                                 try {
-                                    await sftpMkdirRecursive(sftp, remoteTargetDir);
+                                    logToFile?.(`[DEBUG] Attempting to create remote directory: ${remoteTargetDir}`);
+                                    if (!remoteTargetDir) {
+                                        throw new Error('Remote target directory is not set');
+                                    }
+                                    
+                                    // Verify SFTP connection
+                                    if (!sftp) {
+                                        throw new Error('SFTP connection is not established');
+                                    } else {
+                                        logToFile?.(`[DEBUG] SFTP connection established`);
+                                    }
+                                    
+                                    // Create directory
+                                    await sftpMkdirRecursive(sftp, remoteTargetDir, logToFile);
+                                    
+                                    // Verify directory was created
+                                    await new Promise((resolve, reject) => {
+                                        sftp.stat(remoteTargetDir, (err: any) => {
+                                            if (err) {
+                                                const errorMsg = `Failed to verify directory creation: ${err.message}`;
+                                                logToFile?.(errorMsg);
+                                                reject(new Error(errorMsg));
+                                            } else {
+                                                logToFile?.(`[DEBUG] Successfully verified directory exists: ${remoteTargetDir}`);
+                                                resolve(true);
+                                            }
+                                        });
+                                    });
+
                                     if (runItem.steps[0].substeps && runItem.steps[0].substeps[0]) { 
                                         runItem.steps[0].substeps[0].status = 'success'; 
+                                        runItem.steps[0].status = 'success';  // Update parent step status
                                         scheduledRunsProvider.update(); 
                                     }
                                     logToFile?.('Step 1: Setup Machine > Create Remote Directory completed');
                                 } catch (err) {
-                                    const detail = `Step 0 (Initialize run) failed: ${err instanceof Error ? err.message : err}`;
-                                    logToFile?.(detail);
+                                    const detail = `Failed to create remote directory: ${err instanceof Error ? err.message : err}`;
+                                    logToFile?.(`[ERROR] ${detail}`);
+                                    console.error('[ERROR]', detail);
                                     vscode.window.showErrorMessage(detail);
                                     // Mark the substep and parent step as error
                                     if (runItem.steps[0].substeps && runItem.steps[0].substeps[0]) {
@@ -781,13 +783,37 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                                     runItem.steps[0].status = 'error';
                                     runItem.steps[0].detail = detail;
                                     scheduledRunsProvider.update();
-                                    throw err;
+                                    throw err; // Re-throw to prevent continuing to upload step
                                 }
+
+                                // Only proceed to upload if directory creation was successful
+                                const stepStatus = runItem.steps[0].status as 'pending' | 'running' | 'success' | 'error';
+                                if (stepStatus !== 'success') {
+                                    const errorMsg = `Cannot proceed with upload: directory creation failed (status: ${stepStatus})`;
+                                    logToFile?.(`[ERROR] ${errorMsg}`);
+                                    throw new Error(errorMsg);
+                                }
+
                                 // Substep 0.1: Upload Package
-                                if (runItem.steps[0].substeps && runItem.steps[0].substeps[1]) { runItem.steps[0].substeps[1].status = 'running'; scheduledRunsProvider.update(); }
+                                if (runItem.steps[0].substeps && runItem.steps[0].substeps[1]) { 
+                                    runItem.steps[0].substeps[1].status = 'running'; 
+                                    scheduledRunsProvider.update(); 
+                                }
                                 logToFile?.('Step 1: Setup Machine > Upload Package');
-                                if (!fs.existsSync(message.packagePath) || !fs.statSync(message.packagePath).isFile()) {
-                                    const detail = `Local package path does not exist or is not a file: ${message.packagePath}`;
+                                // Validate package path
+                                try {
+                                    const stats = await fsPromises.stat(message.packagePath);
+                                    if (!stats.isFile()) {
+                                        const detail = `Local package path is not a file: ${message.packagePath}`;
+                                        if (runItem.steps[0].substeps && runItem.steps[0].substeps[1]) { runItem.steps[0].substeps[1].status = 'error'; runItem.steps[0].substeps[1].detail = detail; }
+                                        console.error(detail);
+                                        logToFile?.('Step 0.1 (Upload package) failed: ' + detail);
+                                        scheduledRunsProvider.update();
+                                        vscode.window.showErrorMessage(`Step 0.1 (Upload package) failed: ${detail}`);
+                                        throw new Error(detail);
+                                    }
+                                } catch (error) {
+                                    const detail = `Local package path does not exist or is not accessible: ${message.packagePath} - ${error instanceof Error ? error.message : error}`;
                                     if (runItem.steps[0].substeps && runItem.steps[0].substeps[1]) { runItem.steps[0].substeps[1].status = 'error'; runItem.steps[0].substeps[1].detail = detail; }
                                     console.error(detail);
                                     logToFile?.('Step 0.1 (Upload package) failed: ' + detail);
@@ -833,36 +859,46 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                                     const remotePackageExists = await checkRemotePackageExists();
                                     if (!remotePackageExists) {
                                         logToFile?.('[DEBUG] Remote package does not exist. Uploading package...');
-                                        const totalSize = fs.statSync(message.packagePath).size;
+                                        const localPath = message.packagePath;
+                                        const remotePath = remotePackagePath;
+                                        const { size: totalSize } = await fsPromises.stat(localPath);
                                         const totalMB = totalSize / (1024 * 1024);
-                                        logToFile?.(`[DEBUG] Uploading package: ${totalMB.toFixed(2)} MB to remote...`);
-                                        await new Promise((resolve, reject) => {
-                                            const readStream = fs.createReadStream(message.packagePath, { highWaterMark: 1024 * 1024 });
-                                            const writeStream = sftp.createWriteStream(remotePackagePath, { highWaterMark: 1024 * 1024 });
-                                            let bytesTransferred = 0;
-                                            let lastLogged = Date.now();
-                                            let lastPercentLogged = 0;
-                                            readStream.on('data', (chunk: any) => {
-                                                bytesTransferred += chunk.length;
-                                                const now = Date.now();
-                                                const percent = Math.floor((bytesTransferred / totalSize) * 100);
-                                                // Log every 5% or every 5 seconds
-                                                if (percent >= lastPercentLogged + 5 || now - lastLogged > 5000) {
-                                                    logToFile?.(`[DEBUG] Upload progress: ${(bytesTransferred / (1024 * 1024)).toFixed(2)} MB / ${totalMB.toFixed(2)} MB (${percent}%) transferred...`);
-                                                    lastPercentLogged = percent;
-                                                    lastLogged = now;
+                                        logToFile?.(`[DEBUG] Uploading package: ${totalMB.toFixed(2)} MB to remote using fastPut...`);
+                                    
+                                        // Progress bar state
+                                        let lastLoggedPercent = 0;
+                                        const barLength = 20;
+                                        function renderProgressBar(percent: number) {
+                                            const filled = Math.round((percent / 100) * barLength);
+                                            const empty = barLength - filled;
+                                            return `[${'#'.repeat(filled)}${'-'.repeat(empty)}] ${percent}%`;
+                                        }
+                                    
+                                        // Log 0% at the start
+                                        logToFile?.(`[UPLOAD] ${renderProgressBar(0)} (0.00 MB / ${totalMB.toFixed(2)} MB)`);
+                                    
+                                        await new Promise<void>((resolve, reject) => {
+                                            sftp.fastPut(localPath, remotePath, {
+                                                // step is a built-in progress callback for fastPut in ssh2
+                                                step: (transferred: number, chunk: number, total: number) => {
+                                                    const percent = Math.floor((transferred / total) * 100);
+                                                    // Only log every 5% or on completion
+                                                    if (percent - lastLoggedPercent >= 5 || percent === 100) {
+                                                        lastLoggedPercent = percent;
+                                                        logToFile?.(`[UPLOAD] ${renderProgressBar(percent)} (${(transferred / (1024 * 1024)).toFixed(2)} MB / ${(total / (1024 * 1024)).toFixed(2)} MB)`);
+                                                    }
+                                                },
+                                                // Concurrency and chunkSize can be tuned, but defaults are often good.
+                                                // concurrency: 64,
+                                                // chunkSize: 32768
+                                            }, (err: Error | undefined) => {
+                                                if (err) {
+                                                    logToFile?.('fastPut error during upload: ' + err.message);
+                                                    return reject(err); // Make sure to reject the promise
                                                 }
+                                                logToFile?.('[DEBUG] fastPut package upload completed.');
+                                                resolve();
                                             });
-                                            writeStream.on('error', (err: any) => {
-                                                logToFile?.('WriteStream error during upload: ' + err.message);
-                                                throw err;
-                                            });
-                                            writeStream.on('close', () => {
-                                                logToFile?.(`[DEBUG] Upload finished. Total bytes transferred: ${bytesTransferred}`);
-                                                logToFile?.('[DEBUG] Package upload completed.');
-                                                resolve(true);
-                                            });
-                                            readStream.pipe(writeStream);
                                         });
                                     } else {
                                         logToFile?.('[DEBUG] Remote package already exists. Skipping upload.');
@@ -1031,6 +1067,10 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                             if (message.logToFile) { vcCmd += ` --log-to-file`; }
                             if (message.clean) { vcCmd += ` --clean`; }
                             if (message.debug) { vcCmd += ` --debug`; }
+                            if (message.dependencies) { vcCmd += ` --dependencies ${message.dependencies}`; }
+                            if (message.iterations) { vcCmd += ` --iterations ${message.iterations}`; }
+                            if (message.logLevel) { vcCmd += ` --log-level ${message.logLevel}`; }
+                            if (message.failFast) { vcCmd += ` --fail-fast`; }
                             // Run the command in the tool directory, capture PID
                             let command = '';
                             if (platform && isWindows) {
@@ -1174,14 +1214,14 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                                 // 2. Download logs.zip
                                 logsStep.substeps![1].status = 'running'; scheduledRunsProvider.update();
                                 const localLogsDir = path.join(context.globalStoragePath, 'logs', sanitizeLabel(runItem.label));
-                                if (!fs.existsSync(localLogsDir)) { fs.mkdirSync(localLogsDir, { recursive: true }); }
+                                await fsPromises.mkdir(localLogsDir, { recursive: true });
                                 const localZipPath = path.join(localLogsDir, 'logs.zip');
                                 await sftpDownloadFile(sftp, remoteZipPath, localZipPath);
                                 // Cleanup: delete logs.zip on remote
                                 const cleanupZipCmd = `powershell -Command "Remove-Item -Path '${remoteZipPath.replace(/'/g, "''")}' -Force"`;
                                 await new Promise((resolve, reject) => {
                                     resources.conn!.exec(cleanupZipCmd, (err: Error | undefined, stream: any) => {
-                                        if (err) return resolve(true); // Don't fail the run if cleanup fails
+                                        if (err) { resolve(true); return; } // Don't fail the run if cleanup fails
                                         stream.on('close', () => resolve(true));
                                         stream.on('data', () => {});
                                         stream.stderr.on('data', () => {});
@@ -1195,32 +1235,33 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                                 logsStep.substeps![2].status = 'success'; scheduledRunsProvider.update();
 
                                 // Recursively walk the logs directory and build tree nodes
-                                function buildLogSteps(dir: string, parentStep: any, relPath: string): ScheduledRunStep[] {
-                                    const entries = fs.readdirSync(dir, { withFileTypes: true });
-                                    const steps: ScheduledRunStep[] = [];
-                                    for (const entry of entries) {
-                                        if (entry.name === 'logs.zip') continue;
+                                async function buildLogSteps(dir: string, parentStep: any, relPath: string): Promise<ScheduledRunStep[]> {
+                                    const entries = await fsPromises.readdir(dir, { withFileTypes: true });
+                                    const stepsPromises = entries.map(async (entry) => {
+                                        if (entry.name === 'logs.zip') { return null; }
                                         const fullPath = path.join(dir, entry.name);
                                         const entryRelPath = relPath ? path.posix.join(relPath, entry.name) : entry.name;
                                         if (entry.isDirectory()) {
                                             const folderStep = new ScheduledRunStep(entry.name, 'success', undefined);
                                             (folderStep as any).parent = parentStep;
                                             (folderStep as any).runLabel = runItem.label;
-                                            folderStep.substeps = buildLogSteps(fullPath, folderStep, entryRelPath);
-                                            steps.push(folderStep);
+                                            folderStep.substeps = await buildLogSteps(fullPath, folderStep, entryRelPath);
+                                            return folderStep;
                                         } else if (entry.isFile()) {
                                             const logStep = new ScheduledRunStep(`Log: ${entry.name}`, 'success', undefined);
                                             (logStep as any).parent = parentStep;
                                             (logStep as any).runLabel = runItem.label;
                                             (logStep as any).relativePath = entryRelPath;
-                                            steps.push(logStep);
+                                            return logStep;
                                         }
-                                    }
+                                        return null;
+                                    });
+                                    const steps = (await Promise.all(stepsPromises)).filter(s => s !== null) as ScheduledRunStep[];
                                     return steps;
                                 }
                                 // Attach the log tree to the 'Extract Logs Locally' substep
                                 if (logsStep.substeps && logsStep.substeps[2]) {
-                                    logsStep.substeps[2].substeps = buildLogSteps(localLogsDir, logsStep.substeps[2], '');
+                                    logsStep.substeps[2].substeps = await buildLogSteps(localLogsDir, logsStep.substeps[2], '');
                                 }
                                 scheduledRunsProvider.update();
 
@@ -1278,9 +1319,6 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
     // Clean up resources when panel is closed
     resources.panel.onDidDispose(() => {
         resources.cleanup();
-        if (globalResourceManager === resources) {
-            globalResourceManager = undefined;
-        }
     });
 }
 
@@ -1324,7 +1362,7 @@ export async function handleStreamLogs(context: vscode.ExtensionContext, item: S
 
     // Monitor run completion
     const disposable = scheduledRunsProvider.onDidChangeTreeData(async () => {
-        const run = scheduledRunsProvider.getRun(item.label);
+        const run = scheduledRunsProvider.getRun(item.runId);
         if (run && run.steps.every((step: { status: string }) => step.status === 'success' || step.status === 'error')) {
             // Run is complete, read final logs
             try {
@@ -1340,9 +1378,9 @@ export async function handleStreamLogs(context: vscode.ExtensionContext, item: S
     });
 }
 
-async function handleShowLogFiles(context: vscode.ExtensionContext) {
+async function handleShowLogFiles(context: vscode.ExtensionContext): Promise<void> {
     try {
-        const logFiles = fs.readdirSync(LOGS_DIR).filter(f => f.endsWith('.json'));
+        const logFiles = (await fsPromises.readdir(LOGS_DIR)).filter(f => f.endsWith('.json'));
         if (logFiles.length === 0) {
             vscode.window.showInformationMessage('No log files found.');
             return;
@@ -1391,7 +1429,11 @@ async function handleRerun(context: vscode.ExtensionContext, item: ScheduledRunI
         ipAddress: item.ipAddress,
         logToFile: item.logToFile,
         clean: item.clean,
-        debug: item.debug
+        debug: item.debug,
+        dependencies: item.dependencies,
+        iterations: item.iterations,
+        logLevel: item.logLevel,
+        failFast: item.failFast
     };
 
     // Create a new webview panel with the last used parameters
@@ -1413,17 +1455,21 @@ async function handleRerun(context: vscode.ExtensionContext, item: ScheduledRunI
         ip: m.ip
     }));
 
-    // Define the hierarchical steps array
-    const steps = [
-        new ScheduledRunStep('Setup Machine', 'pending', undefined, [
-            new ScheduledRunStep('Create Remote Directory', 'pending'),
-            new ScheduledRunStep('Upload Package', 'pending')
-        ]),
-        new ScheduledRunStep('Run Virtual Client', 'pending', undefined, [
-            new ScheduledRunStep('Verify Virtual Client Tool', 'pending'),
-            new ScheduledRunStep('Execute Virtual Client Command', 'pending')
-        ])
-    ];
+    // Helper to create fresh steps for each rerun
+    function createRunSteps() {
+        return [
+            new ScheduledRunStep('Setup Machine', 'pending', undefined, [
+                new ScheduledRunStep('Create Remote Directory', 'pending'),
+                new ScheduledRunStep('Upload Package', 'pending')
+            ]),
+            new ScheduledRunStep('Run Virtual Client', 'pending', undefined, [
+                new ScheduledRunStep('Verify Virtual Client Tool', 'pending'),
+                new ScheduledRunStep('Execute Virtual Client Command', 'pending')
+            ])
+        ];
+    }
+
+    const steps = createRunSteps();
 
     // Set the webview content with the last used parameters
     panel.webview.html = getRunVirtualClientWebviewContent(machineItems, lastParams, steps, panel.webview);
@@ -1434,7 +1480,7 @@ async function handleRerun(context: vscode.ExtensionContext, item: ScheduledRunI
             // Save the parameters for future use
             await context.globalState.update('lastParameters', message);
 
-            // Create a new run with the same parameters
+            // Create a new run with the same parameters, including dependencies, iterations, logLevel
             const runItem = scheduledRunsProvider.addRun(
                 message.machineIp,
                 message.packagePath,
@@ -1455,11 +1501,15 @@ async function handleRerun(context: vscode.ExtensionContext, item: ScheduledRunI
                 message.logToFile,
                 message.clean,
                 message.debug,
-                steps
+                message.dependencies || '',
+                message.iterations || 1,
+                message.logLevel || '',
+                message.failFast || false,
+                createRunSteps() // always fresh steps
             );
 
             // Save the run to disk
-            saveScheduledRun(context, runItem);
+            await saveScheduledRun(context, runItem);
 
             // Show success message
             vscode.window.showInformationMessage(`Virtual Client run scheduled for ${message.machineIp}`);
@@ -1476,21 +1526,105 @@ async function handleRerun(context: vscode.ExtensionContext, item: ScheduledRunI
 }
 
 // Helper to recursively create remote directories over SFTP
-async function sftpMkdirRecursive(sftp: any, remotePath: string): Promise<void> {
-    const pathParts = remotePath.split('/').filter(Boolean);
-    let current = remotePath.startsWith('/') ? '/' : '';
+async function sftpMkdirRecursive(sftp: any, remotePath: string, logToFile?: (msg: string) => void): Promise<void> {
+    logToFile?.(`[SFTP] Starting directory creation for path: ${remotePath}`);
+    
+    // Normalize path separators to forward slashes for SFTP
+    const normalizedPath = remotePath.replace(/\\/g, '/');
+    logToFile?.(`[SFTP] Normalized path: ${normalizedPath}`);
+    
+    // Handle Windows drive letter if present
+    let pathToCreate = normalizedPath;
+    let driveLetter: string | undefined = undefined;
+    if (normalizedPath.match(/^[A-Za-z]:/)) {
+        driveLetter = normalizedPath.substring(0, 2).toLowerCase();
+        pathToCreate = normalizedPath.substring(2).replace(/^\//, '');
+        logToFile?.(`[SFTP] Windows path detected, drive: ${driveLetter}, adjusted path: ${pathToCreate}`);
+        
+        // First verify we can access the drive
+        try {
+            await new Promise((resolve, reject) => {
+                sftp.stat(driveLetter, (err: any) => {
+                    if (err) {
+                        logToFile?.(`[SFTP] Cannot access drive ${driveLetter}: ${err.message}`);
+                        reject(new Error(`Cannot access drive ${driveLetter}: ${err.message}`));
+                    } else {
+                        resolve(true);
+                    }
+                });
+            });
+        } catch (err) {
+            logToFile?.(`[SFTP] Failed to verify drive access: ${err instanceof Error ? err.message : err}`);
+            throw new Error(`Failed to verify drive access: ${err instanceof Error ? err.message : err}`);
+        }
+    }
+    
+    const pathParts = pathToCreate.split('/').filter(Boolean);
+    logToFile?.(`[SFTP] Path parts to create: ${pathParts.join(', ')}`);
+    let current = driveLetter ? driveLetter : '';
     for (const part of pathParts) {
-        current = current ? `${current.replace(/\/$/, '')}/${part}` : part;
-        await new Promise((resolve, reject) => {
-            sftp.mkdir(current, (err: any) => {
-                if (err && err.code !== 4 && err.code !== 11) { // 4: Failure (may already exist), 11: Already exists
-                    reject(err);
+        current = current ? `${current}/${part}` : part;
+        const absCurrent = driveLetter ? `${driveLetter}/${current.replace(/^([A-Za-z]:)?\/?/, '')}` : current;
+        logToFile?.(`[SFTP] Attempting to create/check directory: ${absCurrent}`);
+        // First check if directory exists
+        const dirExists = await new Promise<boolean>((resolve) => {
+            sftp.stat(absCurrent, (err: any) => {
+                if (err) {
+                    logToFile?.(`[SFTP] Directory ${absCurrent} does not exist: ${err.message}`);
                 } else {
-                    resolve(true);
+                    logToFile?.(`[SFTP] Directory ${absCurrent} exists`);
                 }
+                resolve(!err);
             });
         });
+        if (!dirExists) {
+            try {
+                await new Promise((resolve, reject) => {
+                    sftp.mkdir(absCurrent, { mode: 0o755 }, (err: any) => {
+                        if (err) {
+                            if (err.code === 4) {
+                                logToFile?.(`[SFTP] Initial creation failed with error 4, trying with more permissive settings`);
+                                sftp.mkdir(absCurrent, { mode: 0o777 }, (err2: any) => {
+                                    if (err2) {
+                                        const errorDetails = {
+                                            code: err2.code,
+                                            message: err2.message,
+                                            level: err2.level,
+                                            stack: err2.stack
+                                        };
+                                        logToFile?.(`[SFTP] Error creating directory ${absCurrent} with permissive settings: ${JSON.stringify(errorDetails)}`);
+                                        if (err2.code === 11) {
+                                            logToFile?.(`[SFTP] Directory ${absCurrent} already exists (code: ${err2.code})`);
+                                            resolve(true);
+                                        } else {
+                                            reject(err2);
+                                        }
+                                    } else {
+                                        logToFile?.(`[SFTP] Successfully created directory ${absCurrent} with permissive settings`);
+                                        resolve(true);
+                                    }
+                                });
+                            } else if (err.code === 11) {
+                                logToFile?.(`[SFTP] Directory ${absCurrent} already exists (code: ${err.code})`);
+                                resolve(true);
+                            } else {
+                                reject(err);
+                            }
+                        } else {
+                            logToFile?.(`[SFTP] Successfully created directory: ${absCurrent}`);
+                            resolve(true);
+                        }
+                    });
+                });
+            } catch (err) {
+                logToFile?.(`[SFTP] Failed to create directory ${absCurrent}: ${err instanceof Error ? err.message : err}`);
+                throw new Error(`Failed to create directory ${absCurrent}: ${err instanceof Error ? err.message : err}`);
+            }
+        } else {
+            logToFile?.(`[SFTP] Directory ${absCurrent} already exists, skipping creation`);
+        }
     }
+    logToFile?.(`[SFTP] Completed directory creation for path: ${remotePath}`);
 }
 
 // Helper to download a file via SFTP
@@ -1508,10 +1642,55 @@ async function sftpDownloadFile(sftp: any, remotePath: string, localPath: string
 // Helper to extract a zip file locally
 async function extractZip(zipPath: string, extractTo: string): Promise<void> {
     return new Promise((resolve, reject) => {
-        const unzip = require('unzipper');
         fs.createReadStream(zipPath)
-            .pipe(unzip.Extract({ path: extractTo }))
+            .pipe(unzipper.Extract({ path: extractTo }))
             .on('close', resolve)
             .on('error', reject);
+    });
+}
+
+// DRY: Extract SSH-based platform detection logic
+async function detectRemotePlatform(ip: string, credentials: { username: string; password?: string }): Promise<string> {
+    const { username, password = '' } = credentials;
+    if (!ip || !username) {
+        return '';
+    }
+    const conn = new ssh2.Client();
+    return new Promise<string>((resolve) => {
+        conn.on('ready', () => {
+            conn.exec('uname -s && uname -m || (ver & echo %PROCESSOR_ARCHITECTURE%)', (err, stream) => {
+                if (err) {
+                    conn.end();
+                    resolve('');
+                    return;
+                }
+                let output = '';
+                stream.on('data', (data: Buffer) => { output += data.toString(); });
+                stream.on('close', () => {
+                    conn.end();
+                    let platform = '';
+                    if (/Linux/i.test(output)) {
+                        if (/aarch64|arm64/i.test(output)) { platform = 'linux-arm64'; }
+                        else if (/x86_64/i.test(output)) { platform = 'linux-x64'; }
+                    } else if (/Windows/i.test(output) || /Microsoft Windows/i.test(output)) {
+                        if (/ARM64/i.test(output)) { platform = 'win-arm64'; }
+                        else if (/AMD64/i.test(output)) { platform = 'win-x64'; }
+                    }
+                    resolve(platform);
+                });
+            });
+        });
+        conn.on('error', () => { resolve(''); });
+        conn.on('timeout', () => { resolve(''); });
+        try {
+            conn.connect({
+                host: ip,
+                username,
+                password,
+                readyTimeout: 7000
+            });
+        } catch {
+            resolve('');
+        }
     });
 }

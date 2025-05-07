@@ -49,8 +49,8 @@
         "title": "Delete Machine"
       },
       {
-        "command": "virtual-client.clearScheduledRuns",
-        "title": "Clear"
+        "command": "virtual-client.removeAllScheduledRuns",
+        "title": "Remove All"
       },
       {
         "command": "virtual-client.openExtensionLogFile",
@@ -59,6 +59,10 @@
       {
         "command": "virtual-client.refreshMachineStatus",
         "title": "Refresh Machine Status"
+      },
+      {
+        "command": "virtual-client.removeScheduledRun",
+        "title": "Remove Scheduled Run"
       }
     ],
     "viewsContainers": {
@@ -116,6 +120,12 @@
           "when": "view == virtualClientView && viewItem == scheduledRun",
           "group": "navigation@2",
           "title": "View Run Log"
+        },
+        {
+          "command": "virtual-client.removeScheduledRun",
+          "when": "view == virtualClientView && viewItem == scheduledRun",
+          "group": "inline",
+          "title": "Remove"
         }
       ],
       "view/title": [
@@ -130,10 +140,10 @@
           "group": "navigation@1"
         },
         {
-          "command": "virtual-client.clearScheduledRuns",
+          "command": "virtual-client.removeAllScheduledRuns",
           "when": "view == virtualClientView",
           "group": "navigation@2",
-          "title": "Clear"
+          "title": "Remove All"
         },
         {
           "command": "virtual-client.refreshMachineStatus",
@@ -150,12 +160,15 @@
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src",
-    "test": "node ./out/test/runTest.js"
+    "test": "node ./out/test/runTest.js",
+    "clean": "rmdir /s/q out"
   },
   "devDependencies": {
-    "@types/glob": "^8.1.0",
+    "@types/glob": "^7.2.0",
     "@types/mocha": "^10.0.10",
     "@types/node": "^20.0.0",
+    "@types/unzipper": "^0.10.11",
+    "@types/uuid": "^10.0.0",
     "@types/vscode": "^1.99.0",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
@@ -165,7 +178,9 @@
     "typescript": "^5.0.0"
   },
   "dependencies": {
+    "minimatch": "^3.1.2",
     "ssh2": "^1.14.0",
-    "unzipper": "^0.10.11"
+    "unzipper": "^0.12.3",
+    "uuid": "^11.1.0"
   }
 }

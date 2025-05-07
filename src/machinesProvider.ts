@@ -1,18 +1,16 @@
 import * as vscode from 'vscode';
+import * as ssh2 from 'ssh2';
 
 // Fix type: SharedMachinesType should be an array of objects, not an array type alias
 interface SharedMachine { label: string; ip: string; platform?: string; }
 type SharedMachinesType = SharedMachine[];
-declare global {
-    var sharedMachines: SharedMachinesType | undefined;
-    var treeViewProvider: { refresh?: () => void } | undefined;
-}
 
 export class MachinesProvider implements vscode.TreeDataProvider<MachineItem> {
     private _onDidChangeTreeData: vscode.EventEmitter<MachineItem | undefined | void> = new vscode.EventEmitter<MachineItem | undefined | void>();
     readonly onDidChangeTreeData: vscode.Event<MachineItem | undefined | void> = this._onDidChangeTreeData.event;
     private context: vscode.ExtensionContext;
     private machineStatus: { [ip: string]: 'unknown' | 'connected' | 'unreachable' | 'fetching' } = {};
+    private isRefreshing: boolean = false;
 
     constructor(context: vscode.ExtensionContext) {
         this.context = context;
@@ -60,6 +58,16 @@ export class MachinesProvider implements vscode.TreeDataProvider<MachineItem> {
         this._onDidChangeTreeData.fire(undefined);
     }
 
+    private logToFile(msg: string) {
+        const logDir = this.context.globalStoragePath;
+        const logFile = require('path').join(logDir, 'machinesProvider.log');
+        const fs = require('fs');
+        const line = `[${new Date().toISOString()}] ${msg}\n`;
+        try {
+            fs.appendFileSync(logFile, line);
+        } catch {}
+    }
+
     async getMachineCredentials(ip: string): Promise<{ username: string; password: string } | undefined> {
         try {
             const username = await this.context.secrets.get(`machine:${ip}:username`);
@@ -70,7 +78,7 @@ export class MachinesProvider implements vscode.TreeDataProvider<MachineItem> {
             }
             return undefined;
         } catch (error) {
-            console.error(`Failed to get credentials for machine ${ip}:`, error);
+            this.logToFile(`Failed to get credentials for machine ${ip}: ${error}`);
             return undefined;
         }
     }
@@ -106,7 +114,7 @@ export class MachinesProvider implements vscode.TreeDataProvider<MachineItem> {
             
             this.refresh();
         } catch (error) {
-            console.error(`Failed to add machine ${ip}:`, error);
+            this.logToFile(`Failed to add machine ${ip}: ${error}`);
             throw error;
         }
     }
@@ -122,69 +130,82 @@ export class MachinesProvider implements vscode.TreeDataProvider<MachineItem> {
             
             this.refresh();
         } catch (error) {
-            console.error(`Failed to delete machine ${ip}:`, error);
+            this.logToFile(`Failed to delete machine ${ip}: ${error}`);
             throw error;
         }
     }
 
     async refreshConnectionStatus(): Promise<void> {
-        const machines = this.context.globalState.get<SharedMachine[]>('machines', []);
-        for (const machine of machines) {
-            this.machineStatus[machine.ip] = 'fetching';
+        if (this.isRefreshing) {
+            return;
         }
-        this.refresh();
-        for (const machine of machines) {
-            const credentials = await this.getMachineCredentials(machine.ip);
-            if (!credentials) {
-                this.machineStatus[machine.ip] = 'unreachable';
-                this.refresh();
-                continue;
-            }
-            try {
-                const ssh2 = require('ssh2');
-                await new Promise((resolve, reject) => {
-                    const conn = new ssh2.Client();
-                    let finished = false;
-                    conn.on('ready', () => {
-                        finished = true;
-                        this.machineStatus[machine.ip] = 'connected';
-                        conn.end();
-                        this.refresh();
-                        resolve(true);
-                    }).on('error', () => {
-                        if (!finished) {
-                            this.machineStatus[machine.ip] = 'unreachable';
-                            this.refresh();
-                            finished = true;
-                            resolve(false);
-                        }
-                    }).on('end', () => {
-                        if (!finished) {
-                            this.machineStatus[machine.ip] = 'unreachable';
-                            this.refresh();
-                            finished = true;
-                            resolve(false);
-                        }
-                    }).connect({
+        this.isRefreshing = true;
+        try {
+            const machines = this.context.globalState.get<SharedMachine[]>('machines', []);
+            await Promise.all(machines.map(machine => this._refreshStatusForMachine(machine)));
+            this.refresh(); // Only refresh UI once after all statuses are updated
+        } finally {
+            this.isRefreshing = false;
+        }
+    }
+
+    private async _refreshStatusForMachine(machine: SharedMachine): Promise<void> {
+        this.machineStatus[machine.ip] = 'fetching';
+        // Do not call this.refresh() here
+        const credentials = await this.getMachineCredentials(machine.ip);
+        if (!credentials) {
+            this.machineStatus[machine.ip] = 'unreachable';
+            return;
+        }
+        const conn = new ssh2.Client();
+        let isResolved = false;
+        try {
+            const isConnected = await new Promise<boolean>((resolve) => {
+                conn.on('ready', () => {
+                    isResolved = true;
+                    conn.end();
+                    resolve(true);
+                });
+                conn.on('error', () => {
+                    if (!isResolved) {
+                        isResolved = true;
+                        resolve(false);
+                    }
+                });
+                conn.on('timeout', () => {
+                    if (!isResolved) {
+                        isResolved = true;
+                        resolve(false);
+                    }
+                });
+                try {
+                    conn.connect({
                         host: machine.ip,
                         username: credentials.username,
                         password: credentials.password,
                         readyTimeout: 5000
                     });
-                    setTimeout(() => {
-                        if (!finished) {
-                            this.machineStatus[machine.ip] = 'unreachable';
-                            this.refresh();
-                            finished = true;
-                            conn.end();
-                            resolve(false);
-                        }
-                    }, 6000);
-                });
-            } catch {
-                this.machineStatus[machine.ip] = 'unreachable';
-                this.refresh();
-            }
+                } catch {
+                    resolve(false);
+                }
+            });
+            this.machineStatus[machine.ip] = isConnected ? 'connected' : 'unreachable';
+        } catch {
+            this.machineStatus[machine.ip] = 'unreachable';
+        } finally {
+            try {
+                conn.end();
+            } catch {}
+            // Do not call this.refresh() here
+        }
+    }
+
+    async refreshConnectionStatusForMachine(ip: string): Promise<void> {
+        const machines = this.context.globalState.get<SharedMachine[]>('machines', []);
+        const machine = machines.find((m: SharedMachine) => m.ip === ip);
+        if (machine) {
+            await this._refreshStatusForMachine(machine);
+            // Removed redundant this._onDidChangeTreeData.fire();
         }
     }
 }

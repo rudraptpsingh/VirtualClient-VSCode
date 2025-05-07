@@ -116,13 +116,17 @@ export function getRunVirtualClientWebviewContent(machines: any[], lastParams?: 
                 color: var(--vscode-descriptionForeground);
                 margin-bottom: 5px;
             }
-            input[type="text"], input[type="number"], select {
+            input[type="text"], input[type="number"], select, textarea {
                 width: 100%;
                 padding: 8px;
                 border: 1px solid var(--vscode-input-border);
                 background-color: var(--vscode-input-background);
                 color: var(--vscode-input-foreground);
                 border-radius: 2px;
+                box-sizing: border-box;
+            }
+            textarea {
+                resize: vertical;
             }
             .checkbox-group {
                 display: flex;
@@ -142,6 +146,7 @@ export function getRunVirtualClientWebviewContent(machines: any[], lastParams?: 
                 border: none;
                 border-radius: 2px;
                 cursor: pointer;
+                margin-top: 10px;
             }
             button:hover {
                 background-color: var(--vscode-button-hoverBackground);
@@ -151,10 +156,19 @@ export function getRunVirtualClientWebviewContent(machines: any[], lastParams?: 
                 grid-template-columns: 1fr 1fr;
                 gap: 20px;
             }
+            .section-title {
+                font-size: 1.2em;
+                margin-top: 25px;
+                margin-bottom: 10px;
+                border-bottom: 1px solid var(--vscode-settings-headerForeground);
+                padding-bottom: 5px;
+                font-weight: bold;
+            }
         </style>
     </head>
     <body>
         <form id="runForm">
+            <div class="section-title">Basic Configuration</div>
             <div class="form-group">
                 <label for="machine">Target Machine:</label>
                 <span class="desc">The remote machine to run Virtual Client on.</span>
@@ -165,8 +179,8 @@ export function getRunVirtualClientWebviewContent(machines: any[], lastParams?: 
             </div>
 
             <div class="form-group">
-                <label for="packagePath">Virtual Client Package Path:</label>
-                <span class="desc">Path to the Virtual Client package on the remote machine.</span>
+                <label for="packagePath">Local Virtual Client Package Path:</label>
+                <span class="desc">Path to the Virtual Client package (e.g., .zip, .tar.gz) on your local machine to be uploaded.</span>
                 <input type="text" id="packagePath" name="packagePath" value="${lastParams?.packagePath || ''}" required>
             </div>
 
@@ -181,6 +195,7 @@ export function getRunVirtualClientWebviewContent(machines: any[], lastParams?: 
                 <button type="button" id="loadDefaultsBtn" style="margin-left: 10px;">Load Defaults</button>
             </div>
 
+            <div class="section-title">Execution Control</div>
             <div class="grid-2">
                 <div class="form-group">
                     <label for="system">System (--system):</label>
@@ -195,14 +210,24 @@ export function getRunVirtualClientWebviewContent(machines: any[], lastParams?: 
                     <span class="desc">Timeout in minutes.</span>
                     <input type="number" id="timeout" name="timeout" value="${lastParams?.timeout || '10'}" min="1">
                 </div>
-
+                <div class="form-group">
+                    <label for="iterations">Iterations (--iterations):</label>
+                    <span class="desc">Number of times to run the profile.</span>
+                    <input type="number" id="iterations" name="iterations" placeholder="e.g., 1" min="1" value="${lastParams?.iterations || ''}">
+                </div>
                 <div class="form-group">
                     <label for="exitWait">Exit Wait (--exit-wait):</label>
                     <span class="desc">Minutes to wait before exit.</span>
                     <input type="number" id="exitWait" name="exitWait" value="${lastParams?.exitWait || '2'}" min="1">
                 </div>
+                <div class="form-group">
+                    <label for="dependencies">Dependencies (--dependencies):</label>
+                    <span class="desc">Comma-separated list of dependency package names.</span>
+                    <input type="text" id="dependencies" name="dependencies" placeholder="e.g., antutu.dependency,fio.dependency" value="${lastParams?.dependencies || ''}">
+                </div>
             </div>
 
+            <div class="section-title">Advanced Parameters</div>
             <div class="form-group">
                 <label for="proxyApi">Proxy API (--proxy-api):</label>
                 <span class="desc">Proxy API endpoint.</span>
@@ -257,8 +282,8 @@ export function getRunVirtualClientWebviewContent(machines: any[], lastParams?: 
                 <input type="text" id="ipAddress" name="ipAddress" value="${lastParams?.ipAddress || ''}">
             </div>
 
+            <div class="section-title">Options</div>
             <div class="form-group">
-                <label>Options:</label>
                 <div class="checkbox-group">
                     <div class="checkbox-item">
                         <input type="checkbox" id="logToFile" name="logToFile" ${lastParams?.logToFile ? 'checked' : ''}>
@@ -272,7 +297,24 @@ export function getRunVirtualClientWebviewContent(machines: any[], lastParams?: 
                         <input type="checkbox" id="debug" name="debug" ${lastParams?.debug ? 'checked' : ''}>
                         <label for="debug">Debug/Verbose (--debug)</label>
                     </div>
+                    <div class="checkbox-item">
+                        <input type="checkbox" id="failFast" name="failFast" ${lastParams?.failFast ? 'checked' : ''}>
+                        <label for="failFast">Fail Fast (--fail-fast)</label>
+                    </div>
                 </div>
+            </div>
+            <div class="form-group">
+                <label for="logLevel">Log Level (--log-level):</label>
+                <span class="desc">Set the minimum log level.</span>
+                <select id="logLevel" name="logLevel">
+                    <option value="" ${!lastParams?.logLevel ? 'selected' : ''}>Default (Information)</option>
+                    <option value="Verbose" ${lastParams?.logLevel === 'Verbose' ? 'selected' : ''}>Verbose</option>
+                    <option value="Debug" ${lastParams?.logLevel === 'Debug' ? 'selected' : ''}>Debug</option>
+                    <option value="Information" ${lastParams?.logLevel === 'Information' ? 'selected' : ''}>Information</option>
+                    <option value="Warning" ${lastParams?.logLevel === 'Warning' ? 'selected' : ''}>Warning</option>
+                    <option value="Error" ${lastParams?.logLevel === 'Error' ? 'selected' : ''}>Error</option>
+                    <option value="Critical" ${lastParams?.logLevel === 'Critical' ? 'selected' : ''}>Critical</option>
+                </select>
             </div>
 
             <button type="submit">Run Virtual Client</button>
@@ -289,9 +331,11 @@ export function getRunVirtualClientWebviewContent(machines: any[], lastParams?: 
             // Show/hide custom profile input and auto-load defaults
             profileSelect.addEventListener('change', () => {
                 if (profileSelect.value === 'custom') {
-                    profileCustom.style.display = '';
+                    profileCustom.style.display = 'block';
+                    profileCustom.required = true;
                 } else {
                     profileCustom.style.display = 'none';
+                    profileCustom.required = false;
                 }
                 // Auto-load defaults for known profiles
                 if (profileSelect.value === 'PERF-IO-DISKSPD.json') {
@@ -315,17 +359,24 @@ export function getRunVirtualClientWebviewContent(machines: any[], lastParams?: 
             form.addEventListener('submit', (e) => {
                 e.preventDefault();
                 const formData = new FormData(form);
-                const data = Object.fromEntries(formData.entries());
+                const data = {};
+                formData.forEach((value, key) => {
+                    if (form.elements[key] && form.elements[key].type === 'checkbox') {
+                        data[key] = form.elements[key].checked;
+                    } else {
+                        data[key] = value;
+                    }
+                });
+                // Ensure all checkbox states are captured even if unchecked
+                ['logToFile', 'clean', 'debug', 'failFast'].forEach(cbName => {
+                    if (data[cbName] === undefined) data[cbName] = false;
+                });
                 // Use custom profile if selected
                 if (profileSelect.value === 'custom') {
                     data.profile = profileCustom.value;
                 } else {
                     data.profile = profileSelect.value;
                 }
-                // Convert checkbox values to booleans
-                data.logToFile = formData.get('logToFile') === 'on';
-                data.clean = formData.get('clean') === 'on';
-                data.debug = formData.get('debug') === 'on';
                 vscode.postMessage({
                     command: 'run',
                     ...data

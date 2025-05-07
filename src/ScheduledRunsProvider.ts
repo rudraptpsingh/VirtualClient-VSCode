@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { v4 as uuidv4 } from 'uuid';
 
 export class ScheduledRunStep {
     constructor(
@@ -11,6 +12,7 @@ export class ScheduledRunStep {
 
 export class ScheduledRunItem extends vscode.TreeItem {
     constructor(
+        public readonly runId: string,
         public readonly label: string,
         public readonly machineIp: string,
         public readonly packagePath: string,
@@ -31,11 +33,16 @@ export class ScheduledRunItem extends vscode.TreeItem {
         public readonly logToFile: boolean,
         public readonly clean: boolean,
         public readonly debug: boolean,
+        public readonly dependencies: string,
+        public readonly iterations: number,
+        public readonly logLevel: string,
+        public readonly failFast: boolean,
         public readonly steps: ScheduledRunStep[],
         public readonly timestamp: Date,
         public readonly collapsibleState: vscode.TreeItemCollapsibleState
     ) {
-        super(`${label} (${timestamp.toLocaleString()})`, collapsibleState);
+        // Only add timestamp once in the label
+        super(label, collapsibleState);
         this.contextValue = 'scheduledRun';
     }
 }
@@ -44,6 +51,19 @@ export class ScheduledRunsProvider implements vscode.TreeDataProvider<ScheduledR
     private _onDidChangeTreeData: vscode.EventEmitter<ScheduledRunItem | ScheduledRunStep | undefined | void> = new vscode.EventEmitter<ScheduledRunItem | ScheduledRunStep | undefined | void>();
     readonly onDidChangeTreeData: vscode.Event<ScheduledRunItem | ScheduledRunStep | undefined | void> = this._onDidChangeTreeData.event;
     private runs: ScheduledRunItem[] = [];
+
+    private logToFile(msg: string) {
+        const os = require('os');
+        const path = require('path');
+        const fs = require('fs');
+        const logDir = path.join(os.tmpdir(), 'virtualclient-vscode-logs');
+        try { fs.mkdirSync(logDir, { recursive: true }); } catch {}
+        const logFile = path.join(logDir, 'scheduledRunsProvider.log');
+        const line = `[${new Date().toISOString()}] ${msg}\n`;
+        try {
+            fs.appendFileSync(logFile, line);
+        } catch {}
+    }
 
     getTreeItem(element: ScheduledRunItem | ScheduledRunStep): vscode.TreeItem {
         if (element instanceof ScheduledRunItem) {
@@ -123,6 +143,10 @@ export class ScheduledRunsProvider implements vscode.TreeDataProvider<ScheduledR
         logToFile: boolean,
         clean: boolean,
         debug: boolean,
+        dependencies: string,
+        iterations: number,
+        logLevel: string,
+        failFast: boolean,
         steps?: ScheduledRunStep[],
         timestamp?: Date
     ): ScheduledRunItem {
@@ -134,8 +158,11 @@ export class ScheduledRunsProvider implements vscode.TreeDataProvider<ScheduledR
             new ScheduledRunStep('Execute Virtual Client', 'pending'),
             new ScheduledRunStep('Logs', 'pending')
         ];
+        // Label now includes timestamp and machineIp in a single place
         const label = `${runTimestamp.toLocaleString()} ${machineIp}`;
+        const runId = uuidv4();
         const run = new ScheduledRunItem(
+            runId,
             label,
             machineIp,
             packagePath,
@@ -156,6 +183,10 @@ export class ScheduledRunsProvider implements vscode.TreeDataProvider<ScheduledR
             logToFile,
             clean,
             debug,
+            dependencies,
+            iterations,
+            logLevel,
+            failFast,
             runSteps,
             runTimestamp,
             vscode.TreeItemCollapsibleState.Expanded
@@ -166,7 +197,11 @@ export class ScheduledRunsProvider implements vscode.TreeDataProvider<ScheduledR
     }
 
     update(): void {
-        this._onDidChangeTreeData.fire(undefined);
+        try {
+            this._onDidChangeTreeData.fire();
+        } catch (error) {
+            this.logToFile(`Failed to update tree data: ${error}`);
+        }
     }
 
     clear(): void {
@@ -174,7 +209,15 @@ export class ScheduledRunsProvider implements vscode.TreeDataProvider<ScheduledR
         this._onDidChangeTreeData.fire(undefined);
     }
 
-    getRun(label: string): ScheduledRunItem | undefined {
-        return this.runs.find(run => run.label === label);
+    getRun(runId: string): ScheduledRunItem | undefined {
+        return this.runs.find(run => run.runId === runId);
+    }
+
+    removeRun(runId: string): void {
+        const index = this.runs.findIndex(run => run.runId === runId);
+        if (index !== -1) {
+            this.runs.splice(index, 1);
+            this._onDidChangeTreeData.fire();
+        }
     }
 }
