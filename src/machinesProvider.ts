@@ -113,6 +113,8 @@ export class MachinesProvider implements vscode.TreeDataProvider<MachineItem> {
             }
             
             this.refresh();
+            // Immediately fetch status for the new machine so spinner/status is shown
+            await this.refreshConnectionStatusForMachine(ip);
         } catch (error) {
             this.logToFile(`Failed to add machine ${ip}: ${error}`);
             throw error;
@@ -141,7 +143,13 @@ export class MachinesProvider implements vscode.TreeDataProvider<MachineItem> {
         }
         this.isRefreshing = true;
         try {
+            // Set all machines to 'fetching' and refresh UI to show spinners
             const machines = this.context.globalState.get<SharedMachine[]>('machines', []);
+            for (const machine of machines) {
+                this.machineStatus[machine.ip] = 'fetching';
+            }
+            this.refresh(); // Show spinners immediately
+
             await Promise.all(machines.map(machine => this._refreshStatusForMachine(machine)));
             this.refresh(); // Only refresh UI once after all statuses are updated
         } finally {
@@ -205,7 +213,7 @@ export class MachinesProvider implements vscode.TreeDataProvider<MachineItem> {
         const machine = machines.find((m: SharedMachine) => m.ip === ip);
         if (machine) {
             await this._refreshStatusForMachine(machine);
-            // Removed redundant this._onDidChangeTreeData.fire();
+            this.refresh(); // Refresh UI after status update
         }
     }
 }
