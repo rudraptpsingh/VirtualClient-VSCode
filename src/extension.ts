@@ -15,6 +15,14 @@ import { VirtualClientTreeViewProvider } from './VirtualClientTreeViewProvider';
 import { MachineCredentials } from './types';
 import { ScheduledRunsProvider, ScheduledRunItem, ScheduledRunStep } from './ScheduledRunsProvider';
 import { MachinesProvider, MachineItem } from './machinesProvider';
+import { 
+    shQuote, 
+    sanitizeLabel, 
+    sftpMkdirRecursive, 
+    sftpDownloadFile, 
+    extractZip, 
+    detectRemotePlatform 
+} from './utils';
 
 // Use extension-specific logs directory in globalStoragePath
 let LOGS_DIR: string;
@@ -138,16 +146,6 @@ export async function clearLogsFolder(context: vscode.ExtensionContext): Promise
 // Add a global cancel flag and a map to track running connections by run label
 const runCancelFlags: { [label: string]: boolean } = {};
 const runConnections: { [label: string]: ssh2.Client } = {};
-
-// Helper to safely quote shell arguments
-function shQuote(str: string) {
-    return `'${str.replace(/'/g, `"'"`)}'`;
-}
-
-// Helper to sanitize run label for filesystem paths
-function sanitizeLabel(label: string): string {
-    return label.replace(/[\\/:*?"<>|,]/g, '-');
-}
 
 // Add at the top, after imports
 let defaultRemoteTargetDir: string | undefined;
@@ -1524,176 +1522,6 @@ async function handleRerun(context: vscode.ExtensionContext, item: ScheduledRunI
 
             // Close the webview
             panel.dispose();
-        }
-    });
-}
-
-// Helper to recursively create remote directories over SFTP
-async function sftpMkdirRecursive(
-    sftp: any,
-    remotePath: string,
-    logger?: import('./types').Logger
-): Promise<void> {
-    logger?.debug(`[SFTP] Starting directory creation for path: ${remotePath}`);
-    // Normalize path separators to forward slashes for SFTP
-    const normalizedPath = remotePath.replace(/\\/g, '/');
-    logger?.debug(`[SFTP] Normalized path: ${normalizedPath}`);
-    // Handle Windows drive letter if present
-    let pathToCreate = normalizedPath;
-    let driveLetter: string | undefined = undefined;
-    if (normalizedPath.match(/^[A-Za-z]:/)) {
-        driveLetter = normalizedPath.substring(0, 2).toLowerCase();
-        pathToCreate = normalizedPath.substring(2).replace(/^\//, '');
-        logger?.debug(`[SFTP] Windows path detected, drive: ${driveLetter}, adjusted path: ${pathToCreate}`);
-        // First verify we can access the drive
-        try {
-            await new Promise((resolve, reject) => {
-                sftp.stat(driveLetter, (err: any) => {
-                    if (err) {
-                        logger?.error(`[SFTP] Cannot access drive ${driveLetter}: ${err.message}`);
-                        reject(new Error(`Cannot access drive ${driveLetter}: ${err.message}`));
-                    } else {
-                        resolve(true);
-                    }
-                });
-            });
-        } catch (err) {
-            logger?.error(`[SFTP] Failed to verify drive access: ${err instanceof Error ? err.message : err}`);
-            throw new Error(`Failed to verify drive access: ${err instanceof Error ? err.message : err}`);
-        }
-    }
-    const pathParts = pathToCreate.split('/').filter(Boolean);
-    logger?.debug(`[SFTP] Path parts to create: ${pathParts.join(', ')}`);
-    let current = driveLetter ? driveLetter : '';
-    for (const part of pathParts) {
-        current = current ? `${current}/${part}` : part;
-        const absCurrent = driveLetter ? `${driveLetter}/${current.replace(/^([A-Za-z]:)?\/?/, '')}` : current;
-        logger?.debug(`[SFTP] Attempting to create/check directory: ${absCurrent}`);
-        // First check if directory exists
-        const dirExists = await new Promise<boolean>((resolve) => {
-            sftp.stat(absCurrent, (err: any) => {
-                if (err) {
-                    logger?.debug(`[SFTP] Directory ${absCurrent} does not exist: ${err.message}`);
-                } else {
-                    logger?.debug(`[SFTP] Directory ${absCurrent} exists`);
-                }
-                resolve(!err);
-            });
-        });
-        if (!dirExists) {
-            try {
-                await new Promise((resolve, reject) => {
-                    sftp.mkdir(absCurrent, { mode: 0o755 }, (err: any) => {
-                        if (err) {
-                            if (err.code === 4) {
-                                logger?.warn(`[SFTP] Initial creation failed with error 4, trying with more permissive settings`);
-                                sftp.mkdir(absCurrent, { mode: 0o777 }, (err2: any) => {
-                                    if (err2) {
-                                        const errorDetails = {
-                                            code: err2.code,
-                                            message: err2.message,
-                                            level: err2.level,
-                                            stack: err2.stack
-                                        };
-                                        logger?.error(`[SFTP] Error creating directory ${absCurrent} with permissive settings: ${JSON.stringify(errorDetails)}`);
-                                        if (err2.code === 11) {
-                                            logger?.debug(`[SFTP] Directory ${absCurrent} already exists (code: ${err2.code})`);
-                                            resolve(true);
-                                        } else {
-                                            reject(err2);
-                                        }
-                                    } else {
-                                        logger?.info(`[SFTP] Successfully created directory ${absCurrent} with permissive settings`);
-                                        resolve(true);
-                                    }
-                                });
-                            } else if (err.code === 11) {
-                                logger?.debug(`[SFTP] Directory ${absCurrent} already exists (code: ${err.code})`);
-                                resolve(true);
-                            } else {
-                                reject(err);
-                            }
-                        } else {
-                            logger?.info(`[SFTP] Successfully created directory: ${absCurrent}`);
-                            resolve(true);
-                        }
-                    });
-                });
-            } catch (err) {
-                logger?.error(`[SFTP] Failed to create directory ${absCurrent}: ${err instanceof Error ? err.message : err}`);
-                throw new Error(`Failed to create directory ${absCurrent}: ${err instanceof Error ? err.message : err}`);
-            }
-        } else {
-            logger?.debug(`[SFTP] Directory ${absCurrent} already exists, skipping creation`);
-        }
-    }
-    logger?.info(`[SFTP] Completed directory creation for path: ${remotePath}`);
-}
-
-// Helper to download a file via SFTP
-async function sftpDownloadFile(sftp: any, remotePath: string, localPath: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-        const readStream = sftp.createReadStream(remotePath);
-        const writeStream = fs.createWriteStream(localPath);
-        readStream.on('error', reject);
-        writeStream.on('error', reject);
-        writeStream.on('close', resolve);
-        readStream.pipe(writeStream);
-    });
-}
-
-// Helper to extract a zip file locally
-async function extractZip(zipPath: string, extractTo: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-        fs.createReadStream(zipPath)
-            .pipe(unzipper.Extract({ path: extractTo }))
-            .on('close', resolve)
-            .on('error', reject);
-    });
-}
-
-// DRY: Extract SSH-based platform detection logic
-async function detectRemotePlatform(ip: string, credentials: { username: string; password?: string }): Promise<string> {
-    const { username, password = '' } = credentials;
-    if (!ip || !username) {
-        return '';
-    }
-    const conn = new ssh2.Client();
-    return new Promise<string>((resolve) => {
-        conn.on('ready', () => {
-            conn.exec('uname -s && uname -m || (ver & echo %PROCESSOR_ARCHITECTURE%)', (err, stream) => {
-                if (err) {
-                    conn.end();
-                    resolve('');
-                    return;
-                }
-                let output = '';
-                stream.on('data', (data: Buffer) => { output += data.toString(); });
-                stream.on('close', () => {
-                    conn.end();
-                    let platform = '';
-                    if (/Linux/i.test(output)) {
-                        if (/aarch64|arm64/i.test(output)) { platform = 'linux-arm64'; }
-                        else if (/x86_64/i.test(output)) { platform = 'linux-x64'; }
-                    } else if (/Windows/i.test(output) || /Microsoft Windows/i.test(output)) {
-                        if (/ARM64/i.test(output)) { platform = 'win-arm64'; }
-                        else if (/AMD64/i.test(output)) { platform = 'win-x64'; }
-                    }
-                    resolve(platform);
-                });
-            });
-        });
-        conn.on('error', () => { resolve(''); });
-        conn.on('timeout', () => { resolve(''); });
-        try {
-            conn.connect({
-                host: ip,
-                username,
-                password,
-                readyTimeout: 7000
-            });
-        } catch {
-            resolve('');
         }
     });
 }
