@@ -220,4 +220,11 @@ export class ScheduledRunsProvider implements vscode.TreeDataProvider<ScheduledR
             this._onDidChangeTreeData.fire();
         }
     }
+
+    /**
+     * Returns all scheduled runs for a given machine IP.
+     */
+    public getRunsForMachine(machineIp: string): ScheduledRunItem[] {
+        return this.runs.filter(run => run.machineIp === machineIp);
+    }
 }

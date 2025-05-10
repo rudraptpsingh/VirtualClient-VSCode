@@ -96,11 +96,6 @@
           "group": "inline"
         },
         {
-          "command": "virtual-client.runVirtualClientWebview",
-          "when": "view == virtualClientView && viewItem == machine",
-          "group": "inline"
-        },
-        {
           "command": "virtual-client.cancelScheduledRun",
           "when": "view == virtualClientView && viewItem == scheduledRun",
           "group": "inline"

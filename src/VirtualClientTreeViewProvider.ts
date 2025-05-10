@@ -31,7 +31,8 @@ export class VirtualClientTreeViewProvider implements vscode.TreeDataProvider<Ma
     public get machines(): MachineItem[] {
         // Always fetch the latest machines from global state
         const machines = this.context.globalState.get<{ label: string, ip: string }[]>('machines', []);
-        return machines.map(m => new MachineItem(m.label, m.ip, vscode.TreeItemCollapsibleState.None, 'machine'));
+        // Use Collapsed so each machine can be expanded to show scheduled runs
+        return machines.map(m => new MachineItem(m.label, m.ip, vscode.TreeItemCollapsibleState.Collapsed, 'machine'));
     }
 
     getTreeItem(element: MachineItem | ScheduledRunItem | ScheduledRunStep): vscode.TreeItem {
@@ -56,22 +57,24 @@ export class VirtualClientTreeViewProvider implements vscode.TreeDataProvider<Ma
     }
 
     getChildren(element?: MachineItem | ScheduledRunItem | ScheduledRunStep): Promise<(MachineItem | ScheduledRunItem | ScheduledRunStep)[]> {
+        // If no element, return all machines as root nodes
         if (!element) {
-            this.logToFile('Getting root children');
-            // Only show Scheduled Runs node in Virtual Client view
-            const scheduledRunsNode = new MachineItem('Scheduled Runs', '', vscode.TreeItemCollapsibleState.Collapsed, 'scheduledRunsRoot');
-            // Cast to ScheduledRunItem | ScheduledRunStep to satisfy type
-            return Promise.resolve([scheduledRunsNode as unknown as ScheduledRunItem]);
+            this.logToFile('Getting root machine nodes');
+            return Promise.resolve(this.machines);
         }
-        if (element instanceof MachineItem && element.contextValue === 'scheduledRunsRoot') {
-            this.logToFile('Getting scheduled runs');
-            // Return scheduled runs as children
-            return this.scheduledRunsProvider.getChildren() as Promise<ScheduledRunItem[]>;
+        // If element is a machine, return scheduled runs for that machine
+        if (element instanceof MachineItem && element.contextValue === 'machine') {
+            this.logToFile(`Getting scheduled runs for machine: ${element.label} (${element.ip})`);
+            // Use public method to get runs for this machine
+            const runs = this.scheduledRunsProvider.getRunsForMachine(element.ip);
+            return Promise.resolve(runs);
         }
+        // If element is a scheduled run, return its steps
         if (element instanceof ScheduledRunItem) {
             this.logToFile(`Getting steps for run: ${element.label}`);
             return this.scheduledRunsProvider.getChildren(element) as Promise<ScheduledRunStep[]>;
         }
+        // If element is a step with substeps, return substeps
         if (element instanceof ScheduledRunStep && element.substeps) {
             return Promise.resolve(element.substeps);
         }
