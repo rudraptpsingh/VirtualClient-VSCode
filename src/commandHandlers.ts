@@ -51,6 +51,10 @@ class RunResourceManager implements ActiveResources {
 let globalResourceManager: RunResourceManager | undefined;
 
 // Helper functions
+/**
+ * Cleans up resources used by a run (SSH, SFTP, streams, panel).
+ * @param resources The resources to clean up.
+ */
 export function cleanupResources(resources: ActiveResources) {
     if (resources.readStream) {
         try { resources.readStream.destroy(); } catch {}
@@ -71,6 +75,11 @@ export function cleanupResources(resources: ActiveResources) {
 }
 
 // Command handlers
+/**
+ * Handles the Add Machine command, showing the webview and processing user input.
+ * @param context The extension context.
+ * @param machinesProvider The machines provider instance.
+ */
 export async function handleAddMachine(
     context: vscode.ExtensionContext,
     machinesProvider: any
@@ -115,8 +124,7 @@ export async function handleAddMachine(
             cleanupResources(resources);
         });
     } catch (error) {
-        vscode.window.showErrorMessage(`Failed to create add machine panel: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        cleanupResources(resources);
+        vscode.window.showErrorMessage(`Failed to open Add Machine webview: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
 }
 
@@ -245,4 +253,4 @@ export async function handleShowLogFiles(context: vscode.ExtensionContext): Prom
     } catch (error) {
         vscode.window.showErrorMessage(`Failed to show log files: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-} 
+}

@@ -90,7 +90,11 @@ interface RunStep {
     detail?: string;
 }
 
-// Helper functions for log management
+/**
+ * Loads scheduled runs from the logs directory.
+ * @param context The extension context.
+ * @returns Array of scheduled run objects.
+ */
 export async function loadScheduledRuns(context: vscode.ExtensionContext): Promise<any[]> {
     try {
         const files = (await fsPromises.readdir(LOGS_DIR)).filter(f => f.endsWith('.json'));
@@ -111,6 +115,11 @@ export async function loadScheduledRuns(context: vscode.ExtensionContext): Promi
     }
 }
 
+/**
+ * Saves a scheduled run to the logs directory.
+ * @param context The extension context.
+ * @param run The run object to save.
+ */
 export async function saveScheduledRun(context: vscode.ExtensionContext, run: any): Promise<void> {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const machineLabel = typeof run.machineLabel === 'string' ? sanitizeLabel(run.machineLabel) : 'unknown_label';
@@ -126,6 +135,10 @@ export async function saveScheduledRun(context: vscode.ExtensionContext, run: an
     }
 }
 
+/**
+ * Clears all files from the logs directory.
+ * @param context The extension context.
+ */
 export async function clearLogsFolder(context: vscode.ExtensionContext): Promise<void> {
     try {
         await fsPromises.access(LOGS_DIR);
@@ -150,7 +163,10 @@ const runConnections: { [label: string]: ssh2.Client } = {};
 // Add at the top, after imports
 let defaultRemoteTargetDir: string | undefined;
 
-// This method is called when your extension is activated
+/**
+ * Activates the extension, registers providers and commands, and initializes state.
+ * @param context The extension context.
+ */
 export async function activate(context: vscode.ExtensionContext) {
     try {
         // Initialize providers
@@ -465,7 +481,9 @@ export async function activate(context: vscode.ExtensionContext) {
     }
 }
 
-// This method is called when your extension is deactivated
+/**
+ * Deactivates the extension and cleans up global resources.
+ */
 export function deactivate() {
     // Clean up global resources
 }

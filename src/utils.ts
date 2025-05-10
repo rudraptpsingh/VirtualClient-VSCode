@@ -25,6 +25,9 @@ export function sanitizeLabel(label: string): string {
 
 /**
  * Recursively creates remote directories over SFTP.
+ * @param sftp The SFTP connection.
+ * @param remotePath The remote directory path to create.
+ * @param logger Optional logger for debug output.
  */
 export async function sftpMkdirRecursive(sftp: any, remotePath: string, logger?: any): Promise<void> {
     const parts = remotePath.split(/[\\/]/).filter(Boolean);
@@ -55,6 +58,9 @@ export async function sftpMkdirRecursive(sftp: any, remotePath: string, logger?:
 
 /**
  * Downloads a file via SFTP.
+ * @param sftp The SFTP connection.
+ * @param remotePath The remote file path.
+ * @param localPath The local file path.
  */
 export async function sftpDownloadFile(sftp: any, remotePath: string, localPath: string): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -70,6 +76,8 @@ export async function sftpDownloadFile(sftp: any, remotePath: string, localPath:
 
 /**
  * Extracts a zip file locally to a target directory.
+ * @param zipPath Path to the zip file.
+ * @param extractTo Directory to extract to.
  */
 export async function extractZip(zipPath: string, extractTo: string): Promise<void> {
     await fs.promises.mkdir(extractTo, { recursive: true });
@@ -83,6 +91,9 @@ export async function extractZip(zipPath: string, extractTo: string): Promise<vo
 
 /**
  * Detects the remote platform (Windows/Linux) via SSH.
+ * @param ip The IP address of the remote machine.
+ * @param credentials The credentials for SSH.
+ * @returns The detected platform string or empty string if detection fails.
  */
 export async function detectRemotePlatform(ip: string, credentials: { username: string; password?: string }): Promise<string> {
     const { username, password = '' } = credentials;

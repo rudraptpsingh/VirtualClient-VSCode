@@ -1,3 +1,6 @@
+/**
+ * Represents credentials for a remote machine.
+ */
 export interface MachineCredentials {
     name: string;
     host: string;

@@ -3,6 +3,9 @@ import { MachineItem } from './machinesProvider';
 import { ScheduledRunItem, ScheduledRunStep, ScheduledRunsProvider } from './ScheduledRunsProvider';
 import { Logger, LogLevel } from './types';
 
+/**
+ * Provides the main tree view for the Virtual Client extension, showing machines and scheduled runs.
+ */
 export class VirtualClientTreeViewProvider implements vscode.TreeDataProvider<MachineItem | ScheduledRunItem | ScheduledRunStep> {
     private _onDidChangeTreeData: vscode.EventEmitter<MachineItem | ScheduledRunItem | ScheduledRunStep | undefined | void> = new vscode.EventEmitter<MachineItem | ScheduledRunItem | ScheduledRunStep | undefined | void>();
     readonly onDidChangeTreeData: vscode.Event<MachineItem | ScheduledRunItem | ScheduledRunStep | undefined | void> = this._onDidChangeTreeData.event;
@@ -66,6 +69,9 @@ export class VirtualClientTreeViewProvider implements vscode.TreeDataProvider<Ma
         return Promise.resolve([]);
     }
 
+    /**
+     * Refreshes the tree view.
+     */
     refresh(): void {
         try {
             this._onDidChangeTreeData.fire();

@@ -2,6 +2,9 @@ import * as vscode from 'vscode';
 import { v4 as uuidv4 } from 'uuid';
 import { Logger, LogLevel } from './types';
 
+/**
+ * Represents a step in a scheduled run.
+ */
 export class ScheduledRunStep {
     constructor(
         public readonly label: string,
@@ -11,6 +14,9 @@ export class ScheduledRunStep {
     ) {}
 }
 
+/**
+ * Represents a scheduled run item in the tree view.
+ */
 export class ScheduledRunItem extends vscode.TreeItem {
     constructor(
         public readonly runId: string,
@@ -47,6 +53,9 @@ export class ScheduledRunItem extends vscode.TreeItem {
     }
 }
 
+/**
+ * Provides the tree data for scheduled runs.
+ */
 export class ScheduledRunsProvider implements vscode.TreeDataProvider<ScheduledRunItem | ScheduledRunStep> {
     private _onDidChangeTreeData: vscode.EventEmitter<ScheduledRunItem | ScheduledRunStep | undefined | void> = new vscode.EventEmitter<ScheduledRunItem | ScheduledRunStep | undefined | void>();
     readonly onDidChangeTreeData: vscode.Event<ScheduledRunItem | ScheduledRunStep | undefined | void> = this._onDidChangeTreeData.event;
@@ -187,6 +196,9 @@ export class ScheduledRunsProvider implements vscode.TreeDataProvider<ScheduledR
         return run;
     }
 
+    /**
+     * Updates the tree view.
+     */
     update(): void {
         try {
             this._onDidChangeTreeData.fire();

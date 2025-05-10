@@ -5,6 +5,9 @@ import { Logger, LogLevel } from './types';
 interface SharedMachine { label: string; ip: string; platform?: string; }
 type SharedMachinesType = SharedMachine[];
 
+/**
+ * Provides the tree data for the Machines view.
+ */
 export class MachinesProvider implements vscode.TreeDataProvider<MachineItem> {
     private _onDidChangeTreeData: vscode.EventEmitter<MachineItem | undefined | void> = new vscode.EventEmitter<MachineItem | undefined | void>();
     readonly onDidChangeTreeData: vscode.Event<MachineItem | undefined | void> = this._onDidChangeTreeData.event;
@@ -58,6 +61,11 @@ export class MachinesProvider implements vscode.TreeDataProvider<MachineItem> {
         this._onDidChangeTreeData.fire(undefined);
     }
 
+    /**
+     * Gets the credentials for a machine by IP address.
+     * @param ip The IP address of the machine.
+     * @returns The credentials or undefined if not found.
+     */
     async getMachineCredentials(ip: string): Promise<{ username: string; password: string } | undefined> {
         try {
             const username = await this.context.secrets.get(`machine:${ip}:username`);
@@ -91,6 +99,14 @@ export class MachinesProvider implements vscode.TreeDataProvider<MachineItem> {
         return undefined;
     }
 
+    /**
+     * Adds a new machine to the global state and stores credentials securely.
+     * @param label The label for the machine.
+     * @param ip The IP address.
+     * @param username The username.
+     * @param password The password.
+     * @param platform The platform (optional).
+     */
     async addMachine(label: string, ip: string, username?: string, password?: string, platform?: string): Promise<void> {
         try {
             const machines = this.context.globalState.get<SharedMachine[]>('machines', []);
@@ -105,7 +121,7 @@ export class MachinesProvider implements vscode.TreeDataProvider<MachineItem> {
             this.refresh();
             await this.refreshConnectionStatusForMachine(ip);
         } catch (error) {
-            this.logger.error(`Failed to add machine ${ip}: ${error}`);
+            this.logger.error(`Failed to add machine ${label} (${ip}): ${error}`);
             throw error;
         }
     }

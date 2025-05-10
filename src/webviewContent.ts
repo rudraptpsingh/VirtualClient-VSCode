@@ -1,5 +1,8 @@
 import * as vscode from 'vscode';
 
+/**
+ * Returns the HTML content for the Add Machine webview.
+ */
 export function getAddMachineWebviewContent(): string {
     return `
     <!DOCTYPE html>
@@ -85,6 +88,13 @@ export function getAddMachineWebviewContent(): string {
     `;
 }
 
+/**
+ * Returns the HTML content for the Run Virtual Client webview.
+ * @param machines List of available machines.
+ * @param lastParams Last used parameters.
+ * @param _steps Steps for the run.
+ * @param webview The webview instance.
+ */
 export function getRunVirtualClientWebviewContent(machines: any[], lastParams?: any, _steps?: any[], webview?: vscode.Webview): string {
     const machineOptions = machines.map(machine => 
         `<option value="${machine.ip}" ${lastParams?.machineIp === machine.ip ? 'selected' : ''}>${machine.label} (${machine.ip})</option>`
