@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { v4 as uuidv4 } from 'uuid';
+import { Logger, LogLevel } from './types';
 
 export class ScheduledRunStep {
     constructor(
@@ -41,7 +42,6 @@ export class ScheduledRunItem extends vscode.TreeItem {
         public readonly timestamp: Date,
         public readonly collapsibleState: vscode.TreeItemCollapsibleState
     ) {
-        // Only add timestamp once in the label
         super(label, collapsibleState);
         this.contextValue = 'scheduledRun';
     }
@@ -51,18 +51,10 @@ export class ScheduledRunsProvider implements vscode.TreeDataProvider<ScheduledR
     private _onDidChangeTreeData: vscode.EventEmitter<ScheduledRunItem | ScheduledRunStep | undefined | void> = new vscode.EventEmitter<ScheduledRunItem | ScheduledRunStep | undefined | void>();
     readonly onDidChangeTreeData: vscode.Event<ScheduledRunItem | ScheduledRunStep | undefined | void> = this._onDidChangeTreeData.event;
     private runs: ScheduledRunItem[] = [];
+    private logger: Logger;
 
-    private logToFile(msg: string) {
-        const os = require('os');
-        const path = require('path');
-        const fs = require('fs');
-        const logDir = path.join(os.tmpdir(), 'virtualclient-vscode-logs');
-        try { fs.mkdirSync(logDir, { recursive: true }); } catch {}
-        const logFile = path.join(logDir, 'scheduledRunsProvider.log');
-        const line = `[${new Date().toISOString()}] ${msg}\n`;
-        try {
-            fs.appendFileSync(logFile, line);
-        } catch {}
+    constructor(logger?: Logger) {
+        this.logger = logger || new Logger(LogLevel.Info);
     }
 
     getTreeItem(element: ScheduledRunItem | ScheduledRunStep): vscode.TreeItem {
@@ -158,7 +150,6 @@ export class ScheduledRunsProvider implements vscode.TreeDataProvider<ScheduledR
             new ScheduledRunStep('Execute Virtual Client', 'pending'),
             new ScheduledRunStep('Logs', 'pending')
         ];
-        // Label now includes timestamp and machineIp in a single place
         const label = `${runTimestamp.toLocaleString()} ${machineIp}`;
         const runId = uuidv4();
         const run = new ScheduledRunItem(
@@ -200,7 +191,7 @@ export class ScheduledRunsProvider implements vscode.TreeDataProvider<ScheduledR
         try {
             this._onDidChangeTreeData.fire();
         } catch (error) {
-            this.logToFile(`Failed to update tree data: ${error}`);
+            this.logger.error(`Failed to update tree data: ${error}`);
         }
     }
 

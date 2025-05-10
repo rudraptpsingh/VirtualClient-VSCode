@@ -37,10 +37,6 @@
         "title": "Add Machine"
       },
       {
-        "command": "virtual-client.cancelScheduledRun",
-        "title": "Cancel Experiment"
-      },
-      {
         "command": "scheduledRuns.openLogFile",
         "title": "Open Log File"
       },
@@ -93,11 +89,6 @@
         {
           "command": "virtual-client.addMachineWebview",
           "when": "view == machinesView && viewItem == addMachine",
-          "group": "inline"
-        },
-        {
-          "command": "virtual-client.cancelScheduledRun",
-          "when": "view == virtualClientView && viewItem == scheduledRun",
           "group": "inline"
         },
         {

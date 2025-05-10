@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { MachineItem } from './machinesProvider';
 import { ScheduledRunItem, ScheduledRunStep, ScheduledRunsProvider } from './ScheduledRunsProvider';
+import { Logger, LogLevel } from './types';
 
 export class VirtualClientTreeViewProvider implements vscode.TreeDataProvider<MachineItem | ScheduledRunItem | ScheduledRunStep> {
     private _onDidChangeTreeData: vscode.EventEmitter<MachineItem | ScheduledRunItem | ScheduledRunStep | undefined | void> = new vscode.EventEmitter<MachineItem | ScheduledRunItem | ScheduledRunStep | undefined | void>();
@@ -9,29 +10,18 @@ export class VirtualClientTreeViewProvider implements vscode.TreeDataProvider<Ma
     private context: vscode.ExtensionContext;
     private sharedMachines: { label: string, ip: string }[];
     private scheduledRunsProvider: ScheduledRunsProvider;
+    private logger: Logger;
 
-    constructor(context: vscode.ExtensionContext, sharedMachines: { label: string, ip: string }[], scheduledRunsProvider: ScheduledRunsProvider) {
+    constructor(context: vscode.ExtensionContext, sharedMachines: { label: string, ip: string }[], scheduledRunsProvider: ScheduledRunsProvider, logger?: Logger) {
         this.context = context;
         this.sharedMachines = sharedMachines;
         this.scheduledRunsProvider = scheduledRunsProvider;
-        // Ensure tree view refreshes when provider updates
+        this.logger = logger || new Logger(LogLevel.Info);
         this.scheduledRunsProvider.onDidChangeTreeData(() => this._onDidChangeTreeData.fire(undefined));
     }
 
-    private logToFile(msg: string) {
-        const logDir = this.context.globalStoragePath;
-        const logFile = require('path').join(logDir, 'virtualClientTreeViewProvider.log');
-        const fs = require('fs');
-        const line = `[${new Date().toISOString()}] ${msg}\n`;
-        try {
-            fs.appendFileSync(logFile, line);
-        } catch {}
-    }
-
     public get machines(): MachineItem[] {
-        // Always fetch the latest machines from global state
         const machines = this.context.globalState.get<{ label: string, ip: string }[]>('machines', []);
-        // Use Collapsed so each machine can be expanded to show scheduled runs
         return machines.map(m => new MachineItem(m.label, m.ip, vscode.TreeItemCollapsibleState.Collapsed, 'machine'));
     }
 
@@ -57,24 +47,19 @@ export class VirtualClientTreeViewProvider implements vscode.TreeDataProvider<Ma
     }
 
     getChildren(element?: MachineItem | ScheduledRunItem | ScheduledRunStep): Promise<(MachineItem | ScheduledRunItem | ScheduledRunStep)[]> {
-        // If no element, return all machines as root nodes
         if (!element) {
-            this.logToFile('Getting root machine nodes');
+            this.logger.debug('Getting root machine nodes');
             return Promise.resolve(this.machines);
         }
-        // If element is a machine, return scheduled runs for that machine
         if (element instanceof MachineItem && element.contextValue === 'machine') {
-            this.logToFile(`Getting scheduled runs for machine: ${element.label} (${element.ip})`);
-            // Use public method to get runs for this machine
+            this.logger.debug(`Getting scheduled runs for machine: ${element.label} (${element.ip})`);
             const runs = this.scheduledRunsProvider.getRunsForMachine(element.ip);
             return Promise.resolve(runs);
         }
-        // If element is a scheduled run, return its steps
         if (element instanceof ScheduledRunItem) {
-            this.logToFile(`Getting steps for run: ${element.label}`);
+            this.logger.debug(`Getting steps for run: ${element.label}`);
             return this.scheduledRunsProvider.getChildren(element) as Promise<ScheduledRunStep[]>;
         }
-        // If element is a step with substeps, return substeps
         if (element instanceof ScheduledRunStep && element.substeps) {
             return Promise.resolve(element.substeps);
         }
@@ -85,7 +70,7 @@ export class VirtualClientTreeViewProvider implements vscode.TreeDataProvider<Ma
         try {
             this._onDidChangeTreeData.fire();
         } catch (error) {
-            this.logToFile(`Failed to refresh tree data: ${error}`);
+            this.logger.error(`Failed to refresh tree data: ${error}`);
         }
     }
 

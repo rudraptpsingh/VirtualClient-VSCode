@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as ssh2 from 'ssh2';
+import { Logger, LogLevel } from './types';
 
-// Fix type: SharedMachinesType should be an array of objects, not an array type alias
 interface SharedMachine { label: string; ip: string; platform?: string; }
 type SharedMachinesType = SharedMachine[];
 
@@ -11,23 +11,23 @@ export class MachinesProvider implements vscode.TreeDataProvider<MachineItem> {
     private context: vscode.ExtensionContext;
     private machineStatus: { [ip: string]: 'unknown' | 'connected' | 'unreachable' | 'fetching' } = {};
     private isRefreshing: boolean = false;
+    private logger: Logger;
 
-    constructor(context: vscode.ExtensionContext) {
+    constructor(context: vscode.ExtensionContext, logger?: Logger) {
         this.context = context;
+        this.logger = logger || new Logger(LogLevel.Info);
     }
 
     getTreeItem(element: MachineItem): vscode.TreeItem {
-        // Set icon based on connection status
         const status = this.machineStatus[element.ip] || 'unknown';
-        // If status is unknown and we're currently fetching, show a spinner
         if (status === 'fetching') {
-            element.iconPath = new vscode.ThemeIcon('loading~spin'); // spinning indicator
+            element.iconPath = new vscode.ThemeIcon('loading~spin');
         } else if (status === 'connected') {
-            element.iconPath = new vscode.ThemeIcon('circle-filled', new vscode.ThemeColor('testing.iconPassed')); // green
+            element.iconPath = new vscode.ThemeIcon('circle-filled', new vscode.ThemeColor('testing.iconPassed'));
         } else if (status === 'unreachable') {
-            element.iconPath = new vscode.ThemeIcon('circle-filled', new vscode.ThemeColor('testing.iconFailed')); // red
+            element.iconPath = new vscode.ThemeIcon('circle-filled', new vscode.ThemeColor('testing.iconFailed'));
         } else {
-            element.iconPath = new vscode.ThemeIcon('circle-outline', new vscode.ThemeColor('testing.iconQueued')); // amber/unknown
+            element.iconPath = new vscode.ThemeIcon('circle-outline', new vscode.ThemeColor('testing.iconQueued'));
         }
         return element;
     }
@@ -58,16 +58,6 @@ export class MachinesProvider implements vscode.TreeDataProvider<MachineItem> {
         this._onDidChangeTreeData.fire(undefined);
     }
 
-    private logToFile(msg: string) {
-        const logDir = this.context.globalStoragePath;
-        const logFile = require('path').join(logDir, 'machinesProvider.log');
-        const fs = require('fs');
-        const line = `[${new Date().toISOString()}] ${msg}\n`;
-        try {
-            fs.appendFileSync(logFile, line);
-        } catch {}
-    }
-
     async getMachineCredentials(ip: string): Promise<{ username: string; password: string } | undefined> {
         try {
             const username = await this.context.secrets.get(`machine:${ip}:username`);
@@ -78,7 +68,7 @@ export class MachinesProvider implements vscode.TreeDataProvider<MachineItem> {
             }
             return undefined;
         } catch (error) {
-            this.logToFile(`Failed to get credentials for machine ${ip}: ${error}`);
+            this.logger.error(`Failed to get credentials for machine ${ip}: ${error}`);
             return undefined;
         }
     }
@@ -113,10 +103,9 @@ export class MachinesProvider implements vscode.TreeDataProvider<MachineItem> {
             }
             
             this.refresh();
-            // Immediately fetch status for the new machine so spinner/status is shown
             await this.refreshConnectionStatusForMachine(ip);
         } catch (error) {
-            this.logToFile(`Failed to add machine ${ip}: ${error}`);
+            this.logger.error(`Failed to add machine ${ip}: ${error}`);
             throw error;
         }
     }
@@ -132,7 +121,7 @@ export class MachinesProvider implements vscode.TreeDataProvider<MachineItem> {
             
             this.refresh();
         } catch (error) {
-            this.logToFile(`Failed to delete machine ${ip}: ${error}`);
+            this.logger.error(`Failed to delete machine ${ip}: ${error}`);
             throw error;
         }
     }
@@ -143,15 +132,14 @@ export class MachinesProvider implements vscode.TreeDataProvider<MachineItem> {
         }
         this.isRefreshing = true;
         try {
-            // Set all machines to 'fetching' and refresh UI to show spinners
             const machines = this.context.globalState.get<SharedMachine[]>('machines', []);
             for (const machine of machines) {
                 this.machineStatus[machine.ip] = 'fetching';
             }
-            this.refresh(); // Show spinners immediately
+            this.refresh();
 
             await Promise.all(machines.map(machine => this._refreshStatusForMachine(machine)));
-            this.refresh(); // Only refresh UI once after all statuses are updated
+            this.refresh();
         } finally {
             this.isRefreshing = false;
         }
@@ -159,7 +147,6 @@ export class MachinesProvider implements vscode.TreeDataProvider<MachineItem> {
 
     private async _refreshStatusForMachine(machine: SharedMachine): Promise<void> {
         this.machineStatus[machine.ip] = 'fetching';
-        // Do not call this.refresh() here
         const credentials = await this.getMachineCredentials(machine.ip);
         if (!credentials) {
             this.machineStatus[machine.ip] = 'unreachable';
@@ -204,7 +191,6 @@ export class MachinesProvider implements vscode.TreeDataProvider<MachineItem> {
             try {
                 conn.end();
             } catch {}
-            // Do not call this.refresh() here
         }
     }
 
@@ -213,12 +199,11 @@ export class MachinesProvider implements vscode.TreeDataProvider<MachineItem> {
         const machine = machines.find((m: SharedMachine) => m.ip === ip);
         if (machine) {
             await this._refreshStatusForMachine(machine);
-            this.refresh(); // Refresh UI after status update
+            this.refresh();
         }
     }
 }
 
-// Export MachineItem if not already exported elsewhere
 export class MachineItem extends vscode.TreeItem {
     connectionStatus: 'unknown' | 'connected' | 'unreachable' | 'fetching' = 'unknown';
     constructor(

@@ -603,9 +603,8 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
         }
         // --- LOG FILE VARS ---
         let logStream: fs.WriteStream | undefined;
-        let logToFile: ((msg: string) => void) | undefined;
-        // --- OutputChannel for real-time streaming ---
         let outputChannel: vscode.OutputChannel | undefined;
+        let logger: import('./types').Logger | undefined;
         // --- END LOG FILE VARS ---
         try {
             const machine = await machinesProvider.getMachineByIp(message.machineIp);
@@ -639,7 +638,6 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                 }
                 const platform = machine.platform;
                 if (!platform || platform.trim() === '') {
-                    logToFile?.('Platform is not set or empty for the selected machine.');
                     vscode.window.showErrorMessage('Platform is not set for the selected machine.');
                     throw new Error('Platform is not set for the selected machine.');
                 }
@@ -698,15 +696,20 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                 const safeLabel = runItem.label.replace(/[\\/:"*?<>|,]/g, '-');
                 const logFilePath = path.join(logsDir, `${safeLabel}.log`);
                 logStream = fs.createWriteStream(logFilePath, { flags: 'a' });
-                // Create OutputChannel for this run
                 outputChannel = vscode.window.createOutputChannel(`Virtual Client Logs - ${runItem.label}`);
                 outputChannel.show(true);
-                logToFile = function(msg: string) {
-                    const line = `[${new Date().toISOString()}] ${msg}`;
-                    logStream!.write(line + '\n');
-                    outputChannel!.appendLine(line);
-                };
-                logToFile?.(`Scheduled run started for ${runItem.label}`);
+                // Determine log level from run parameters (default: Info)
+                const { LogLevel, Logger } = await import('./types');
+                let logLevel = LogLevel.Info;
+                if (typeof message.logLevel === 'string') {
+                    const levelStr = message.logLevel.toLowerCase();
+                    if (levelStr === 'debug') { logLevel = LogLevel.Debug; }
+                    else if (levelStr === 'info') { logLevel = LogLevel.Info; }
+                    else if (levelStr === 'warn' || levelStr === 'warning') { logLevel = LogLevel.Warning; }
+                    else if (levelStr === 'error') { logLevel = LogLevel.Error; }
+                }
+                logger = new Logger(logLevel, outputChannel, logStream);
+                logger.info(`Scheduled run started for ${runItem.label}`);
                 // --- END LOG FILE SETUP ---
                 // Register the connection for cancellation
                 runCancelFlags[runItem.label] = false;
@@ -720,7 +723,7 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                         if (err) {
                             vscode.window.showErrorMessage(`SFTP error: ${err?.message}`);
                             console.error('SFTP error:', err);
-                            logToFile?.('SFTP error: ' + (err?.message || ''));
+                            logger?.error('SFTP error: ' + (err?.message || ''));
                             resources.cleanup();
                             logStream?.end();
                             return;
@@ -733,9 +736,9 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                                 // Step 0: Setup Machine
                                 runItem.steps[0].status = 'running'; scheduledRunsProvider.update();
                                 if (runItem.steps[0].substeps && runItem.steps[0].substeps[0]) { runItem.steps[0].substeps[0].status = 'running'; scheduledRunsProvider.update(); }
-                                logToFile?.('Step 1: Setup Machine > Create Remote Directory');
+                                logger?.info('Step 1: Setup Machine > Create Remote Directory');
                                 try {
-                                    logToFile?.(`[DEBUG] Attempting to create remote directory: ${remoteTargetDir}`);
+                                    logger?.debug(`[DEBUG] Attempting to create remote directory: ${remoteTargetDir}`);
                                     if (!remoteTargetDir) {
                                         throw new Error('Remote target directory is not set');
                                     }
@@ -744,21 +747,21 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                                     if (!sftp) {
                                         throw new Error('SFTP connection is not established');
                                     } else {
-                                        logToFile?.(`[DEBUG] SFTP connection established`);
+                                        logger?.debug(`[DEBUG] SFTP connection established`);
                                     }
                                     
                                     // Create directory
-                                    await sftpMkdirRecursive(sftp, remoteTargetDir, logToFile);
+                                    await sftpMkdirRecursive(sftp, remoteTargetDir, logger);
                                     
                                     // Verify directory was created
                                     await new Promise((resolve, reject) => {
                                         sftp.stat(remoteTargetDir, (err: any) => {
                                             if (err) {
                                                 const errorMsg = `Failed to verify directory creation: ${err.message}`;
-                                                logToFile?.(errorMsg);
+                                                logger?.error(errorMsg);
                                                 reject(new Error(errorMsg));
                                             } else {
-                                                logToFile?.(`[DEBUG] Successfully verified directory exists: ${remoteTargetDir}`);
+                                                logger?.debug(`[DEBUG] Successfully verified directory exists: ${remoteTargetDir}`);
                                                 resolve(true);
                                             }
                                         });
@@ -769,10 +772,10 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                                         runItem.steps[0].status = 'success';  // Update parent step status
                                         scheduledRunsProvider.update(); 
                                     }
-                                    logToFile?.('Step 1: Setup Machine > Create Remote Directory completed');
+                                    logger?.info('Step 1: Setup Machine > Create Remote Directory completed');
                                 } catch (err) {
                                     const detail = `Failed to create remote directory: ${err instanceof Error ? err.message : err}`;
-                                    logToFile?.(`[ERROR] ${detail}`);
+                                    logger?.error(`[ERROR] ${detail}`);
                                     console.error('[ERROR]', detail);
                                     vscode.window.showErrorMessage(detail);
                                     // Mark the substep and parent step as error
@@ -790,7 +793,7 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                                 const stepStatus = runItem.steps[0].status as 'pending' | 'running' | 'success' | 'error';
                                 if (stepStatus !== 'success') {
                                     const errorMsg = `Cannot proceed with upload: directory creation failed (status: ${stepStatus})`;
-                                    logToFile?.(`[ERROR] ${errorMsg}`);
+                                    logger?.error(`[ERROR] ${errorMsg}`);
                                     throw new Error(errorMsg);
                                 }
 
@@ -799,7 +802,7 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                                     runItem.steps[0].substeps[1].status = 'running'; 
                                     scheduledRunsProvider.update(); 
                                 }
-                                logToFile?.('Step 1: Setup Machine > Upload Package');
+                                logger?.info('Step 1: Setup Machine > Upload Package');
                                 // Validate package path
                                 try {
                                     const stats = await fsPromises.stat(message.packagePath);
@@ -807,7 +810,7 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                                         const detail = `Local package path is not a file: ${message.packagePath}`;
                                         if (runItem.steps[0].substeps && runItem.steps[0].substeps[1]) { runItem.steps[0].substeps[1].status = 'error'; runItem.steps[0].substeps[1].detail = detail; }
                                         console.error(detail);
-                                        logToFile?.('Step 0.1 (Upload package) failed: ' + detail);
+                                        logger?.error('Step 0.1 (Upload package) failed: ' + detail);
                                         scheduledRunsProvider.update();
                                         vscode.window.showErrorMessage(`Step 0.1 (Upload package) failed: ${detail}`);
                                         throw new Error(detail);
@@ -816,7 +819,7 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                                     const detail = `Local package path does not exist or is not accessible: ${message.packagePath} - ${error instanceof Error ? error.message : error}`;
                                     if (runItem.steps[0].substeps && runItem.steps[0].substeps[1]) { runItem.steps[0].substeps[1].status = 'error'; runItem.steps[0].substeps[1].detail = detail; }
                                     console.error(detail);
-                                    logToFile?.('Step 0.1 (Upload package) failed: ' + detail);
+                                    logger?.error('Step 0.1 (Upload package) failed: ' + detail);
                                     scheduledRunsProvider.update();
                                     vscode.window.showErrorMessage(`Step 0.1 (Upload package) failed: ${detail}`);
                                     throw new Error(detail);
@@ -829,41 +832,41 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                                 const extractDestDir = path.posix.join(remoteTargetDir.replace(/\\/g, '/'), packageName);
                                 const extractDestDirWin = path.win32.join(remoteTargetDir, packageName);
                                 const remoteExtractDir = isWindows ? extractDestDirWin : extractDestDir;
-                                logToFile?.(`[DEBUG] remotePackagePath: ${remotePackagePath}`);
-                                logToFile?.(`[DEBUG] remoteExtractDir: ${remoteExtractDir}`);
+                                logger?.debug(`[DEBUG] remotePackagePath: ${remotePackagePath}`);
+                                logger?.debug(`[DEBUG] remoteExtractDir: ${remoteExtractDir}`);
                                 const checkExtractedDirExists = async () => {
                                     return new Promise((resolve) => {
                                         sftp.stat(remoteExtractDir, (err: Error | undefined) => {
                                             const dirExists = !err;
-                                            logToFile?.(`[DEBUG] sftp.stat for extract dir: err=${err ? err.message : 'none'}, exists=${dirExists}`);
+                                            logger?.debug(`[DEBUG] sftp.stat for extract dir: err=${err ? err.message : 'none'}, exists=${dirExists}`);
                                             resolve(dirExists);
                                         });
                                     });
                                 };
                                 if (await checkExtractedDirExists()) {
-                                    logToFile?.('[DEBUG] Extracted directory exists. Skipping extraction.');
+                                    logger?.debug('[DEBUG] Extracted directory exists. Skipping extraction.');
                                     if (runItem.steps[0].substeps && runItem.steps[0].substeps[1]) { runItem.steps[0].substeps[1].status = 'success'; scheduledRunsProvider.update(); }
-                                    logToFile?.('Step 1: Setup Machine > Upload Package skipped (already present and extracted)');
+                                    logger?.info('Step 1: Setup Machine > Upload Package skipped (already present and extracted)');
                                 } else {
-                                    logToFile?.('[DEBUG] Extracted directory does not exist. Proceeding with upload and extraction.');
+                                    logger?.debug('[DEBUG] Extracted directory does not exist. Proceeding with upload and extraction.');
                                     // --- NEW LOGIC: Check if remote package file exists, upload if not ---
                                     const checkRemotePackageExists = async () => {
                                         return new Promise<boolean>((resolve) => {
                                             sftp.stat(remotePackagePath, (err: any) => {
                                                 const fileExists = !err;
-                                                logToFile?.(`[DEBUG] sftp.stat for remote package: err=${err ? err.message : 'none'}, exists=${fileExists}`);
+                                                logger?.debug(`[DEBUG] sftp.stat for remote package: err=${err ? err.message : 'none'}, exists=${fileExists}`);
                                                 resolve(fileExists);
                                             });
                                         });
                                     };
                                     const remotePackageExists = await checkRemotePackageExists();
                                     if (!remotePackageExists) {
-                                        logToFile?.('[DEBUG] Remote package does not exist. Uploading package...');
+                                        logger?.debug('[DEBUG] Remote package does not exist. Uploading package...');
                                         const localPath = message.packagePath;
                                         const remotePath = remotePackagePath;
                                         const { size: totalSize } = await fsPromises.stat(localPath);
                                         const totalMB = totalSize / (1024 * 1024);
-                                        logToFile?.(`[DEBUG] Uploading package: ${totalMB.toFixed(2)} MB to remote using fastPut...`);
+                                        logger?.debug(`[DEBUG] Uploading package: ${totalMB.toFixed(2)} MB to remote using fastPut...`);
                                     
                                         // Progress bar state
                                         let lastLoggedPercent = 0;
@@ -875,7 +878,7 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                                         }
                                     
                                         // Log 0% at the start
-                                        logToFile?.(`[UPLOAD] ${renderProgressBar(0)} (0.00 MB / ${totalMB.toFixed(2)} MB)`);
+                                        logger?.info(`[UPLOAD] ${renderProgressBar(0)} (0.00 MB / ${totalMB.toFixed(2)} MB)`);
                                     
                                         await new Promise<void>((resolve, reject) => {
                                             sftp.fastPut(localPath, remotePath, {
@@ -885,7 +888,7 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                                                     // Only log every 5% or on completion
                                                     if (percent - lastLoggedPercent >= 5 || percent === 100) {
                                                         lastLoggedPercent = percent;
-                                                        logToFile?.(`[UPLOAD] ${renderProgressBar(percent)} (${(transferred / (1024 * 1024)).toFixed(2)} MB / ${(total / (1024 * 1024)).toFixed(2)} MB)`);
+                                                        logger?.info(`[UPLOAD] ${renderProgressBar(percent)} (${(transferred / (1024 * 1024)).toFixed(2)} MB / ${(total / (1024 * 1024)).toFixed(2)} MB)`);
                                                     }
                                                 },
                                                 // Concurrency and chunkSize can be tuned, but defaults are often good.
@@ -893,15 +896,15 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                                                 // chunkSize: 32768
                                             }, (err: Error | undefined) => {
                                                 if (err) {
-                                                    logToFile?.('fastPut error during upload: ' + err.message);
+                                                    logger?.error('fastPut error during upload: ' + err.message);
                                                     return reject(err); // Make sure to reject the promise
                                                 }
-                                                logToFile?.('[DEBUG] fastPut package upload completed.');
+                                                logger?.debug('[DEBUG] fastPut package upload completed.');
                                                 resolve();
                                             });
                                         });
                                     } else {
-                                        logToFile?.('[DEBUG] Remote package already exists. Skipping upload.');
+                                        logger?.debug('[DEBUG] Remote package already exists. Skipping upload.');
                                     }
                                     // --- END NEW LOGIC ---
                                     // Extraction logic (must be after upload is complete)
@@ -924,24 +927,24 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                                         }
                                         // --- RUN EXTRACTION COMMAND IF DEFINED ---
                                         if (extractCmd) {
-                                            logToFile?.(`[DEBUG] Running extraction command: ${extractCmd}`);
+                                            logger?.debug(`[DEBUG] Running extraction command: ${extractCmd}`);
                                             await new Promise((resolve, reject) => {
                                                 resources.conn!.exec(extractCmd, (err: Error | undefined, stream: any) => {
                                                     if (err) {
                                                         const detail = `Extraction failed to start: ${err?.message}`;
                                                         if (runItem.steps[0].substeps && runItem.steps[0].substeps[1]) { runItem.steps[0].substeps[1].status = 'error'; runItem.steps[0].substeps[1].detail = detail; scheduledRunsProvider.update(); }
-                                                        logToFile?.(detail);
+                                                        logger?.error(detail);
                                                         return reject(err);
                                                     }
                                                     let stdout = '';
                                                     let stderr = '';
                                                     stream.on('data', (data: Buffer) => {
                                                         stdout += data.toString();
-                                                        logToFile?.('Extract stdout: ' + data.toString());
+                                                        logger?.info('Extract stdout: ' + data.toString());
                                                     });
                                                     stream.stderr.on('data', (data: Buffer) => {
                                                         stderr += data.toString();
-                                                        logToFile?.('Extract stderr: ' + data.toString());
+                                                        logger?.warn('Extract stderr: ' + data.toString());
                                                     });
                                                     stream.on('close', async (code: number) => {
                                                         if (code === 0) {
@@ -949,19 +952,19 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                                                             const extractedNowExists = await checkExtractedDirExists();
                                                             if (extractedNowExists) {
                                                                 if (runItem.steps[0].substeps && runItem.steps[0].substeps[1]) { runItem.steps[0].substeps[1].status = 'success'; scheduledRunsProvider.update(); }
-                                                                logToFile?.('Extraction completed and directory verified.');
+                                                                logger?.info('Extraction completed and directory verified.');
                                                                 resolve(true);
                                                             } else {
                                                                 const detail = 'Extraction command completed but extracted directory not found.';
                                                                 if (runItem.steps[0].substeps && runItem.steps[0].substeps[1]) { runItem.steps[0].substeps[1].status = 'error'; runItem.steps[0].substeps[1].detail = detail; scheduledRunsProvider.update(); }
-                                                                logToFile?.(detail);
+                                                                logger?.error(detail);
                                                                 vscode.window.showErrorMessage(detail);
                                                                 reject(new Error(detail));
                                                             }
                                                         } else {
                                                             const detail = `Extraction failed (code ${code}): ${stderr}`;
                                                             if (runItem.steps[0].substeps && runItem.steps[0].substeps[1]) { runItem.steps[0].substeps[1].status = 'error'; runItem.steps[0].substeps[1].detail = detail; scheduledRunsProvider.update(); }
-                                                            logToFile?.(detail);
+                                                            logger?.error(detail);
                                                             vscode.window.showErrorMessage(detail);
                                                             reject(new Error(detail));
                                                         }
@@ -969,13 +972,13 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                                                 });
                                             });
                                         } else {
-                                            logToFile?.('[DEBUG] No extraction command defined for this package type.');
+                                            logger?.debug('[DEBUG] No extraction command defined for this package type.');
                                         }
                                         // ... existing code ...
 
                             } catch (err) {
-                                    logToFile?.(`[DEBUG] Upload or extraction failed: ${err instanceof Error ? err.message : err}`);
-                                    logToFile?.(`Step 0.1 (Upload or extraction) failed: ${err instanceof Error ? err.message : err}`);
+                                    logger?.debug(`[DEBUG] Upload or extraction failed: ${err instanceof Error ? err.message : err}`);
+                                    logger?.error(`Step 0.1 (Upload or extraction) failed: ${err instanceof Error ? err.message : err}`);
                                     vscode.window.showErrorMessage(`Step 0.1 (Upload or extraction) failed: ${err instanceof Error ? err.message : err}`);
                                     throw err;
                                 }
@@ -989,13 +992,13 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                             if (runItem.steps[1].substeps && runItem.steps[1].substeps[0]) {
                                 runItem.steps[1].substeps[0].status = 'running'; scheduledRunsProvider.update();
                             }
-                            logToFile?.('Step 2: Run Virtual Client > Verify Virtual Client Tool');
+                            logger?.info('Step 2: Run Virtual Client > Verify Virtual Client Tool');
                             
                             // Use the platform from the selected machine, not from the message
                             if (!platform) {
                                 runItem.steps[1].status = 'error';
                                 runItem.steps[1].detail = `Platform is not set for the selected machine.`;
-                                logToFile?.(`Platform is not set for the selected machine.`);
+                                logger?.error(`Platform is not set for the selected machine.`);
                                 scheduledRunsProvider.update();
                                 throw new Error('Platform is not set for the selected machine.');
                             }
@@ -1006,7 +1009,7 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                             } else if (platform.startsWith('linux')) {
                                 toolExecutable = 'VirtualClient';
                             } else {
-                                logToFile?.(`Unknown platform: ${platform}. Defaulting to VirtualClient.`);
+                                logger?.warn(`Unknown platform: ${platform}. Defaulting to VirtualClient.`);
                                 toolExecutable = 'VirtualClient';
                             }
                             let toolPath, toolDir;
@@ -1019,20 +1022,20 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                             }
                             // --- TOOL PATH VALIDATION AND LOGGING ---
                             // Validate tool path exists on remote before running
-                            logToFile?.(`[DEBUG] Tool path: ${toolPath}`);
+                            logger?.debug(`[DEBUG] Tool path: ${toolPath}`);
                             let toolExists = false;
                             try {
                                 await new Promise((resolve) => {
                                     sftp.stat(toolPath, (err: Error | undefined) => {
                                         toolExists = !err;
                                         if (toolExists) {
-                                            logToFile?.(`[DEBUG] Tool exists: ${toolPath}`);
+                                            logger?.debug(`[DEBUG] Tool exists: ${toolPath}`);
                                         }
                                         resolve(true);
                                     });
                                 });
                             } catch (err) {
-                                logToFile?.(`[DEBUG] Tool path validation error: ${err instanceof Error ? err.message : err}`);
+                                logger?.debug(`[DEBUG] Tool path validation error: ${err instanceof Error ? err.message : err}`);
                             }
                             if (runItem.steps[1].substeps && runItem.steps[1].substeps[0]) {
                                 if (toolExists) {
@@ -1043,7 +1046,7 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                                     runItem.steps[1].substeps[0].detail = `VirtualClient tool not found at path: ${toolPath}`;
                                     runItem.steps[1].status = 'error';
                                     runItem.steps[1].detail = `VirtualClient tool not found at path: ${toolPath}`;
-                                    logToFile?.(`VirtualClient tool not found at path: ${toolPath}`);
+                                    logger?.error(`VirtualClient tool not found at path: ${toolPath}`);
                                     scheduledRunsProvider.update();
                                     throw new Error(`VirtualClient tool not found at path: ${toolPath}`);
                                 }
@@ -1078,13 +1081,13 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                             } else {
                                 command = `${shQuote(toolPath)}${vcCmd}`;
                             }
-                            logToFile?.(`[DEBUG] Command to execute: ${command}`);
+                            logger?.debug(`[DEBUG] Command to execute: ${command}`);
                             // Run the command in the remote target directory, capture PID
                             if (runItem.steps[1].substeps && runItem.steps[1].substeps[1]) {
                                 runItem.steps[1].substeps[1].status = 'running';
                                 scheduledRunsProvider.update();
                             }
-                            logToFile?.('Step 2: Run Virtual Client > Execute Virtual Client Command');
+                            logger?.info('Step 2: Run Virtual Client > Execute Virtual Client Command');
                             await new Promise((resolve, reject) => {
                                 if (runCancelFlags[runItem.label]) {
                                     if (runItem.steps[1].substeps && runItem.steps[1].substeps[1]) {
@@ -1093,7 +1096,7 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                                     }
                                     runItem.steps[1].status = 'error';
                                     runItem.steps[1].detail = 'Run cancelled before execution.';
-                                    logToFile?.('Run cancelled before execution.');
+                                    logger?.warn('Run cancelled before execution.');
                                     scheduledRunsProvider.update();
                                     return reject(new Error('Run cancelled'));
                                 }
@@ -1105,7 +1108,7 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                                         }
                                         runItem.steps[1].status = 'error';
                                         runItem.steps[1].detail = `Failed to start Virtual Client: ${err.message}`;
-                                        logToFile?.('Virtual Client execution error: ' + err.message);
+                                        logger?.error('Virtual Client execution error: ' + err.message);
                                         scheduledRunsProvider.update();
                                         return reject(err);
                                     }
@@ -1114,11 +1117,11 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                                     stream.on('data', (data: Buffer) => {
                                         const msg = data.toString();
                                         stdout += msg;
-                                        logToFile?.('VC stdout: ' + msg);
+                                        logger?.info('VC stdout: ' + msg);
                                     }).stderr.on('data', (data: Buffer) => {
                                         const msg = data.toString();
                                         stderr += msg;
-                                        logToFile?.('VC stderr: ' + msg);
+                                        logger?.warn('VC stderr: ' + msg);
                                     });
                                     stream.on('close', (code: number, signal: string) => {
                                         if (runCancelFlags[runItem.label]) {
@@ -1128,7 +1131,7 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                                             }
                                             runItem.steps[1].status = 'error';
                                             runItem.steps[1].detail = 'Run cancelled.';
-                                            logToFile?.('Run cancelled during execution.');
+                                            logger?.warn('Run cancelled during execution.');
                                             scheduledRunsProvider.update();
                                             return reject(new Error('Run cancelled'));
                                         }
@@ -1137,7 +1140,7 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                                                 runItem.steps[1].substeps[1].status = 'success';
                                                 scheduledRunsProvider.update();
                                             }
-                                            logToFile?.('Step 2: Run Virtual Client completed');
+                                            logger?.info('Step 2: Run Virtual Client completed');
                                             // Mark parent as success only if both substeps succeeded
                                             if (runItem.steps[1].substeps && runItem.steps[1].substeps.every(s => s.status === 'success')) {
                                                 runItem.steps[1].status = 'success';
@@ -1151,7 +1154,7 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                                             }
                                             runItem.steps[1].status = 'error';
                                             runItem.steps[1].detail = `Execution failed (code ${code}): ${stderr}`;
-                                            logToFile?.('Virtual Client execution failed: ' + stderr);
+                                            logger?.error('Virtual Client execution failed: ' + stderr);
                                             scheduledRunsProvider.update();
                                             reject(new Error(runItem.steps[1].detail));
                                         }
@@ -1177,38 +1180,38 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                                 const remoteLogsDir = path.win32.join(extractDestDirWin, 'content', platform, 'logs');
                                 const remoteZipPath = path.win32.join(extractDestDirWin, 'content', platform, 'logs.zip');
                                 const zipCmd = `powershell -Command "Compress-Archive -Path '${remoteLogsDir}/*' -DestinationPath '${remoteZipPath}' -Force"`;
-                                logToFile?.('[DEBUG] Starting Transfer Logs > Zip Logs Folder');
-                                logToFile?.(`[DEBUG] Remote logs directory: ${remoteLogsDir}`);
-                                logToFile?.(`[DEBUG] Remote zip path: ${remoteZipPath}`);
-                                logToFile?.(`[DEBUG] Zip command: ${zipCmd}`);
+                                logger?.debug('[DEBUG] Starting Transfer Logs > Zip Logs Folder');
+                                logger?.debug(`[DEBUG] Remote logs directory: ${remoteLogsDir}`);
+                                logger?.debug(`[DEBUG] Remote zip path: ${remoteZipPath}`);
+                                logger?.debug(`[DEBUG] Zip command: ${zipCmd}`);
                                 logsStep.substeps![0].status = 'running'; scheduledRunsProvider.update();
                                 await new Promise((resolve, reject) => {
                                     resources.conn!.exec(zipCmd, (err: Error | undefined, stream: any) => {
                                         if (err) {
-                                            logToFile?.(`[DEBUG] Error starting zip command: ${err.message}`);
+                                            logger?.debug(`[DEBUG] Error starting zip command: ${err.message}`);
                                             return reject(err);
                                         }
                                         let stderr = '';
                                         let stdout = '';
                                         stream.on('data', (data: Buffer) => {
                                             stdout += data.toString();
-                                            logToFile?.(`[DEBUG] Zip stdout: ${data.toString()}`);
+                                            logger?.info(`[DEBUG] Zip stdout: ${data.toString()}`);
                                         });
                                         stream.stderr.on('data', (data: Buffer) => {
                                             stderr += data.toString();
-                                            logToFile?.(`[DEBUG] Zip stderr: ${data.toString()}`);
+                                            logger?.warn(`[DEBUG] Zip stderr: ${data.toString()}`);
                                         });
                                         stream.on('close', (code: number) => {
-                                            logToFile?.(`[DEBUG] Zip command exited with code ${code}`);
+                                            logger?.debug(`[DEBUG] Zip command exited with code ${code}`);
                                             if (code === 0) { resolve(true); }
                                             else {
-                                                logToFile?.(`[DEBUG] Zip failed with stderr: ${stderr}`);
+                                                logger?.debug(`[DEBUG] Zip failed with stderr: ${stderr}`);
                                                 reject(new Error(`Zip failed: ${stderr}`));
                                             }
                                         });
                                     });
                                 });
-                                logToFile?.('[DEBUG] Finished Transfer Logs > Zip Logs Folder');
+                                logger?.debug('[DEBUG] Finished Transfer Logs > Zip Logs Folder');
                                 logsStep.substeps![0].status = 'success'; scheduledRunsProvider.update();
 
                                 // 2. Download logs.zip
@@ -1273,14 +1276,14 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                                 logsStep.detail = err instanceof Error ? err.message : String(err);
                                 for (const sub of logsStep.substeps ?? []) { if (sub.status === 'running' || sub.status === 'pending') { sub.status = 'error'; } }
                                 scheduledRunsProvider.update();
-                                logToFile?.('Step 3 (Transfer Logs) failed: ' + logsStep.detail);
+                                logger?.error('Step 3 (Transfer Logs) failed: ' + logsStep.detail);
                             }
 
                         } catch (error) {
                                 progress.report({ message: 'Error occurred. See logs for details.' });
                                 throw error;
                             } finally {
-                                logToFile?.('Scheduled run finished.');
+                                logger?.info('Scheduled run finished.');
                                 logStream?.end();
                                 outputChannel?.appendLine('=== Run finished ===');
                                 outputChannel?.show(true);
@@ -1308,8 +1311,8 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
             vscode.window.showErrorMessage(`Failed to execute run: ${errorMessage}`);
             console.error('Failed to execute run:', error);
             // If logStream is defined, log the error and close it
-            if (logToFile && logStream) {
-                logToFile?.('Failed to execute run: ' + (error instanceof Error ? error.stack || error.message : error));
+            if (logger && logStream) {
+                logger.error('Failed to execute run: ' + (error instanceof Error ? error.stack || error.message : error));
                 logStream?.end();
             }
             resources.cleanup();
@@ -1526,27 +1529,28 @@ async function handleRerun(context: vscode.ExtensionContext, item: ScheduledRunI
 }
 
 // Helper to recursively create remote directories over SFTP
-async function sftpMkdirRecursive(sftp: any, remotePath: string, logToFile?: (msg: string) => void): Promise<void> {
-    logToFile?.(`[SFTP] Starting directory creation for path: ${remotePath}`);
-    
+async function sftpMkdirRecursive(
+    sftp: any,
+    remotePath: string,
+    logger?: import('./types').Logger
+): Promise<void> {
+    logger?.debug(`[SFTP] Starting directory creation for path: ${remotePath}`);
     // Normalize path separators to forward slashes for SFTP
     const normalizedPath = remotePath.replace(/\\/g, '/');
-    logToFile?.(`[SFTP] Normalized path: ${normalizedPath}`);
-    
+    logger?.debug(`[SFTP] Normalized path: ${normalizedPath}`);
     // Handle Windows drive letter if present
     let pathToCreate = normalizedPath;
     let driveLetter: string | undefined = undefined;
     if (normalizedPath.match(/^[A-Za-z]:/)) {
         driveLetter = normalizedPath.substring(0, 2).toLowerCase();
         pathToCreate = normalizedPath.substring(2).replace(/^\//, '');
-        logToFile?.(`[SFTP] Windows path detected, drive: ${driveLetter}, adjusted path: ${pathToCreate}`);
-        
+        logger?.debug(`[SFTP] Windows path detected, drive: ${driveLetter}, adjusted path: ${pathToCreate}`);
         // First verify we can access the drive
         try {
             await new Promise((resolve, reject) => {
                 sftp.stat(driveLetter, (err: any) => {
                     if (err) {
-                        logToFile?.(`[SFTP] Cannot access drive ${driveLetter}: ${err.message}`);
+                        logger?.error(`[SFTP] Cannot access drive ${driveLetter}: ${err.message}`);
                         reject(new Error(`Cannot access drive ${driveLetter}: ${err.message}`));
                     } else {
                         resolve(true);
@@ -1554,25 +1558,24 @@ async function sftpMkdirRecursive(sftp: any, remotePath: string, logToFile?: (ms
                 });
             });
         } catch (err) {
-            logToFile?.(`[SFTP] Failed to verify drive access: ${err instanceof Error ? err.message : err}`);
+            logger?.error(`[SFTP] Failed to verify drive access: ${err instanceof Error ? err.message : err}`);
             throw new Error(`Failed to verify drive access: ${err instanceof Error ? err.message : err}`);
         }
     }
-    
     const pathParts = pathToCreate.split('/').filter(Boolean);
-    logToFile?.(`[SFTP] Path parts to create: ${pathParts.join(', ')}`);
+    logger?.debug(`[SFTP] Path parts to create: ${pathParts.join(', ')}`);
     let current = driveLetter ? driveLetter : '';
     for (const part of pathParts) {
         current = current ? `${current}/${part}` : part;
         const absCurrent = driveLetter ? `${driveLetter}/${current.replace(/^([A-Za-z]:)?\/?/, '')}` : current;
-        logToFile?.(`[SFTP] Attempting to create/check directory: ${absCurrent}`);
+        logger?.debug(`[SFTP] Attempting to create/check directory: ${absCurrent}`);
         // First check if directory exists
         const dirExists = await new Promise<boolean>((resolve) => {
             sftp.stat(absCurrent, (err: any) => {
                 if (err) {
-                    logToFile?.(`[SFTP] Directory ${absCurrent} does not exist: ${err.message}`);
+                    logger?.debug(`[SFTP] Directory ${absCurrent} does not exist: ${err.message}`);
                 } else {
-                    logToFile?.(`[SFTP] Directory ${absCurrent} exists`);
+                    logger?.debug(`[SFTP] Directory ${absCurrent} exists`);
                 }
                 resolve(!err);
             });
@@ -1583,7 +1586,7 @@ async function sftpMkdirRecursive(sftp: any, remotePath: string, logToFile?: (ms
                     sftp.mkdir(absCurrent, { mode: 0o755 }, (err: any) => {
                         if (err) {
                             if (err.code === 4) {
-                                logToFile?.(`[SFTP] Initial creation failed with error 4, trying with more permissive settings`);
+                                logger?.warn(`[SFTP] Initial creation failed with error 4, trying with more permissive settings`);
                                 sftp.mkdir(absCurrent, { mode: 0o777 }, (err2: any) => {
                                     if (err2) {
                                         const errorDetails = {
@@ -1592,39 +1595,39 @@ async function sftpMkdirRecursive(sftp: any, remotePath: string, logToFile?: (ms
                                             level: err2.level,
                                             stack: err2.stack
                                         };
-                                        logToFile?.(`[SFTP] Error creating directory ${absCurrent} with permissive settings: ${JSON.stringify(errorDetails)}`);
+                                        logger?.error(`[SFTP] Error creating directory ${absCurrent} with permissive settings: ${JSON.stringify(errorDetails)}`);
                                         if (err2.code === 11) {
-                                            logToFile?.(`[SFTP] Directory ${absCurrent} already exists (code: ${err2.code})`);
+                                            logger?.debug(`[SFTP] Directory ${absCurrent} already exists (code: ${err2.code})`);
                                             resolve(true);
                                         } else {
                                             reject(err2);
                                         }
                                     } else {
-                                        logToFile?.(`[SFTP] Successfully created directory ${absCurrent} with permissive settings`);
+                                        logger?.info(`[SFTP] Successfully created directory ${absCurrent} with permissive settings`);
                                         resolve(true);
                                     }
                                 });
                             } else if (err.code === 11) {
-                                logToFile?.(`[SFTP] Directory ${absCurrent} already exists (code: ${err.code})`);
+                                logger?.debug(`[SFTP] Directory ${absCurrent} already exists (code: ${err.code})`);
                                 resolve(true);
                             } else {
                                 reject(err);
                             }
                         } else {
-                            logToFile?.(`[SFTP] Successfully created directory: ${absCurrent}`);
+                            logger?.info(`[SFTP] Successfully created directory: ${absCurrent}`);
                             resolve(true);
                         }
                     });
                 });
             } catch (err) {
-                logToFile?.(`[SFTP] Failed to create directory ${absCurrent}: ${err instanceof Error ? err.message : err}`);
+                logger?.error(`[SFTP] Failed to create directory ${absCurrent}: ${err instanceof Error ? err.message : err}`);
                 throw new Error(`Failed to create directory ${absCurrent}: ${err instanceof Error ? err.message : err}`);
             }
         } else {
-            logToFile?.(`[SFTP] Directory ${absCurrent} already exists, skipping creation`);
+            logger?.debug(`[SFTP] Directory ${absCurrent} already exists, skipping creation`);
         }
     }
-    logToFile?.(`[SFTP] Completed directory creation for path: ${remotePath}`);
+    logger?.info(`[SFTP] Completed directory creation for path: ${remotePath}`);
 }
 
 // Helper to download a file via SFTP
