@@ -1068,28 +1068,67 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                                 }
                             }
                             // --- END TOOL PATH VALIDATION ---
-                            // Build the command
+                            // Merge additionalArgs with form fields, giving precedence to additionalArgs
                             let vcCmd = '';
-                            if (message.profile) { vcCmd += ` --profile ${message.profile}`; }
-                            if (message.system) { vcCmd += ` --system ${message.system}`; }
-                            if (message.timeout) { vcCmd += ` --timeout ${message.timeout.toString()}`; }
-                            if (message.exitWait) { vcCmd += ` --exit-wait ${message.exitWait.toString()}`; }
-                            if (message.proxyApi) { vcCmd += ` --proxy-api ${message.proxyApi}`; }
-                            if (message.packageStore) { vcCmd += ` --package-store ${message.packageStore}`; }
-                            if (message.eventHub) { vcCmd += ` --event-hub ${message.eventHub}`; }
-                            if (message.experimentId) { vcCmd += ` --experiment-id ${message.experimentId}`; }
-                            if (message.clientId) { vcCmd += ` --client-id ${message.clientId}`; }
-                            if (message.metadata) { vcCmd += ` --metadata ${message.metadata}`; }
-                            if (message.parameters) { vcCmd += ` --parameters ${message.parameters}`; }
-                            if (message.port) { vcCmd += ` --port ${message.port}`; }
-                            if (message.ipAddress) { vcCmd += ` --ip-address ${message.ipAddress}`; }
-                            if (message.logToFile) { vcCmd += ` --log-to-file`; }
-                            if (message.clean) { vcCmd += ` --clean`; }
-                            if (message.debug) { vcCmd += ` --debug`; }
-                            if (message.dependencies) { vcCmd += ` --dependencies ${message.dependencies}`; }
-                            if (message.iterations) { vcCmd += ` --iterations ${message.iterations}`; }
-                            if (message.logLevel) { vcCmd += ` --log-level ${message.logLevel}`; }
-                            if (message.failFast) { vcCmd += ` --fail-fast`; }
+                            // Helper to parse additionalArgs string into an object
+                            function parseAdditionalArgs(args: string): Record<string, string|boolean> {
+                                const regex = /--([\w-]+)(?:[= ]([^\s]+))?/g;
+                                const found: Record<string, string|boolean> = {};
+                                let match;
+                                while ((match = regex.exec(args)) !== null) {
+                                    found[match[1]] = match[2] || true;
+                                }
+                                return found;
+                            }
+                            const additionalArgsObj = message.additionalArgs ? parseAdditionalArgs(message.additionalArgs) : {};
+                            // Helper to add argument if not overridden by additionalArgs
+                            function addArg(cliKey: string, value: any, isFlag = false) {
+                                if (cliKey in additionalArgsObj) {
+                                    return; // overridden
+                                }
+                                if (value !== undefined && value !== null && value !== '' && value !== false) {
+                                    if (isFlag) {
+                                        vcCmd += ` --${cliKey}`;
+                                    } else {
+                                        vcCmd += ` --${cliKey} ${shQuote(String(value))}`;
+                                    }
+                                }
+                            }
+                            addArg('profile', message.profile);
+                            addArg('system', message.system);
+                            addArg('timeout', message.timeout);
+                            addArg('exit-wait', message.exitWait);
+                            addArg('proxy-api', message.proxyApi);
+                            addArg('package-store', message.packageStore);
+                            addArg('event-hub', message.eventHub);
+                            addArg('experiment-id', message.experimentId);
+                            addArg('client-id', message.clientId);
+                            addArg('metadata', message.metadata);
+                            addArg('parameters', message.parameters);
+                            addArg('port', message.port);
+                            addArg('ip-address', message.ipAddress);
+                            addArg('dependencies', message.dependencies);
+                            addArg('iterations', message.iterations);
+                            addArg('log-level', message.logLevel);
+                            addArg('fail-fast', message.failFast, true);
+                            addArg('log-to-file', message.logToFile, true);
+                            // Remove: addArg('clean', message.clean, true);
+                            if (!('clean' in additionalArgsObj)) {
+                                if (Array.isArray(message.clean_targets) && message.clean_targets.length > 0) {
+                                    // If 'all' is selected, use --clean (no value)
+                                    if (message.clean_targets.includes('all')) {
+                                        vcCmd += ' --clean';
+                                    } else {
+                                        vcCmd += ' --clean=' + message.clean_targets.join(',');
+                                    }
+                                }
+                            }
+                            addArg('debug', message.debug, true);
+                            // Add any other form fields as needed
+                            // Now append additionalArgs (as-is, after all form fields)
+                            if (message.additionalArgs && message.additionalArgs.trim()) {
+                                vcCmd += ' ' + message.additionalArgs.trim();
+                            }
                             // Run the command in the tool directory, capture PID
                             let command = '';
                             if (platform && isWindows) {

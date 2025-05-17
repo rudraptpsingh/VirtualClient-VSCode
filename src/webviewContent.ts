@@ -134,6 +134,8 @@ button:hover:not([disabled]) { background-color: var(--vscode-button-hoverBackgr
 .param-row input { flex: 1 1 45%; }
 .param-row button { padding: 0 8px; margin-top: 0; height: 32px; }
 @media (max-width: 600px) { .grid-2 { grid-template-columns: 1fr; } }
+.form-group textarea { width: 100%; min-height: 60px; font-family: monospace; }
+.conflict-warning { color: #F44747; font-size: 0.95em; margin-top: 4px; }
 </style>
 </head>
 <body>
@@ -157,13 +159,10 @@ ${machineOptions}
 <div class="form-group">
 <label for="profile">Profile (--profile):</label>
 <span class="desc">The workload profile to execute. Example: 'PERF-CPU-OPENSSL.json'.</span>
-<select id="profile" name="profile" required aria-required="true">
-<option value="PERF-IO-DISKSPD.json" ${lastParams?.profile === 'PERF-IO-DISKSPD.json' ? 'selected' : ''}>PERF-IO-DISKSPD.json</option>
-<option value="custom" ${lastParams?.profile && lastParams?.profile !== 'PERF-IO-DISKSPD.json' ? 'selected' : ''}>Custom...</option>
-</select>
-<input type="text" id="profileCustom" name="profileCustom" style="display: none; margin-top: 5px;" placeholder="Enter custom profile" value="${lastParams?.profile && lastParams?.profile !== 'PERF-IO-DISKSPD.json' ? lastParams?.profile : ''}">
-<div class="error-message" id="profileError">Please select or enter a profile.</div>
-<button type="button" id="loadDefaultsBtn" style="margin-left: 10px;">Load Defaults</button>
+<input type="text" id="profile" name="profile" required aria-required="true"
+  placeholder="e.g. PERF-CPU-OPENSSL.json"
+  value="${lastParams?.profile ? lastParams.profile.replace(/\"/g, '&quot;') : ''}">
+<div class="error-message" id="profileError">Please enter a profile name or path.</div>
 </div>
 <div class="section-title">Execution Control</div>
 <div class="grid-2">
@@ -243,6 +242,67 @@ ${machineOptions}
 <span class="desc">Target/remote system IP address for monitoring.</span>
 <input type="text" id="ipAddress" name="ipAddress" value="${lastParams?.ipAddress || ''}">
 </div>
+<div class="form-group">
+<label for="contentStore">Content Store (--content-store):</label>
+<span class="desc">Azure Storage Account for uploading files/content.</span>
+<input type="text" id="contentStore" name="contentStore" value="${lastParams?.contentStore || ''}">
+</div>
+<div class="form-group">
+<label for="contentPath">Content Path (--content-path):</label>
+<span class="desc">Content path format/structure for uploads.</span>
+<input type="text" id="contentPath" name="contentPath" value="${lastParams?.contentPath || ''}">
+</div>
+<div class="form-group">
+<label for="layoutPath">Layout Path (--layout-path):</label>
+<span class="desc">Path to environment layout file.</span>
+<input type="text" id="layoutPath" name="layoutPath" value="${lastParams?.layoutPath || ''}">
+</div>
+<div class="form-group">
+<label for="logDir">Log Directory (--log-dir):</label>
+<span class="desc">Alternate directory for log files.</span>
+<input type="text" id="logDir" name="logDir" value="${lastParams?.logDir || ''}">
+</div>
+<div class="form-group">
+<label for="logRetention">Log Retention (--log-retention):</label>
+<span class="desc">Log retention period (e.g. 2880, 02.00:00:00).</span>
+<input type="text" id="logRetention" name="logRetention" value="${lastParams?.logRetention || ''}">
+</div>
+<div class="form-group">
+<label for="packageDir">Package Directory (--package-dir):</label>
+<span class="desc">Alternate directory for packages.</span>
+<input type="text" id="packageDir" name="packageDir" value="${lastParams?.packageDir || ''}">
+</div>
+<div class="form-group">
+<label for="stateDir">State Directory (--state-dir):</label>
+<span class="desc">Alternate directory for state files.</span>
+<input type="text" id="stateDir" name="stateDir" value="${lastParams?.stateDir || ''}">
+</div>
+<div class="form-group">
+<label for="seed">Seed (--seed):</label>
+<span class="desc">Randomization seed.</span>
+<input type="text" id="seed" name="seed" value="${lastParams?.seed || ''}">
+</div>
+<div class="form-group">
+<label for="scenarios">Scenarios (--scenarios):</label>
+<span class="desc">Comma-delimited list of scenarios to include/exclude.</span>
+<input type="text" id="scenarios" name="scenarios" value="${lastParams?.scenarios || ''}">
+</div>
+<div class="form-group">
+<label for="logger">Logger (--logger):</label>
+<span class="desc">Logger definition string(s).</span>
+<input type="text" id="logger" name="logger" value="${lastParams?.logger || ''}">
+</div>
+<div class="form-group">
+<label for="wait">Wait (--wait/--exit-wait/--flush-wait):</label>
+<span class="desc">Time to wait for completion/telemetry flush.</span>
+<input type="text" id="wait" name="wait" value="${lastParams?.wait || ''}">
+</div>
+<div class="form-group">
+<label for="additionalArgs">Additional Command Arguments:</label>
+<span class="desc">Any extra CLI arguments (e.g. --parameters=foo=bar --clean=logs). If a parameter is present here and in the form, this value will be used and a warning will be shown.</span>
+<textarea id="additionalArgs" name="additionalArgs">${lastParams?.additionalArgs || ''}</textarea>
+<div id="conflictWarning" class="conflict-warning" style="display:none;"></div>
+</div>
 <div class="section-title">Options</div>
 <div class="form-group">
 <div class="checkbox-group">
@@ -251,8 +311,13 @@ ${machineOptions}
 <label for="logToFile">Log to File (--log-to-file)</label>
 </div>
 <div class="checkbox-item">
-<input type="checkbox" id="clean" name="clean" ${lastParams?.clean ? 'checked' : ''}>
-<label for="clean">Clean (--clean)</label>
+<label>Clean (--clean):</label>
+<div class="checkbox-group" id="cleanGroup">
+<div class="checkbox-item"><input type="checkbox" id="clean_logs" name="clean_targets" value="logs" ${(lastParams?.clean_targets||[]).includes('logs') ? 'checked' : ''}><label for="clean_logs">logs</label></div>
+<div class="checkbox-item"><input type="checkbox" id="clean_packages" name="clean_targets" value="packages" ${(lastParams?.clean_targets||[]).includes('packages') ? 'checked' : ''}><label for="clean_packages">packages</label></div>
+<div class="checkbox-item"><input type="checkbox" id="clean_state" name="clean_targets" value="state" ${(lastParams?.clean_targets||[]).includes('state') ? 'checked' : ''}><label for="clean_state">state</label></div>
+<div class="checkbox-item"><input type="checkbox" id="clean_all" name="clean_targets" value="all" ${(lastParams?.clean_targets||[]).includes('all') ? 'checked' : ''}><label for="clean_all">all</label></div>
+</div>
 </div>
 <div class="checkbox-item">
 <input type="checkbox" id="debug" name="debug" ${lastParams?.debug ? 'checked' : ''}>
@@ -283,13 +348,12 @@ ${machineOptions}
 (function() {
 const vscode = acquireVsCodeApi();
 const form = document.getElementById('runForm');
-const profileSelect = document.getElementById('profile');
-const profileCustom = document.getElementById('profileCustom');
-const loadDefaultsBtn = document.getElementById('loadDefaultsBtn');
 const machineSelect = document.getElementById('machine');
 const submitBtn = document.getElementById('submitBtn');
 const paramRows = document.getElementById('paramRows');
 const addParamBtn = document.getElementById('addParamBtn');
+const additionalArgs = document.getElementById('additionalArgs');
+const conflictWarning = document.getElementById('conflictWarning');
 function getParamList() {
   const rows = paramRows.querySelectorAll('.param-row');
   const params = [];
@@ -350,25 +414,6 @@ addParamBtn.onclick = function() {
 if (paramRows.children.length === 0 && ${paramPairs.length} > 0) {
   renderParamRows();
 }
-profileSelect.addEventListener('change', function() {
-  if (profileSelect.value === 'custom') {
-    profileCustom.style.display = 'block';
-    profileCustom.required = true;
-  } else {
-    profileCustom.style.display = 'none';
-    profileCustom.required = false;
-  }
-  if (profileSelect.value === 'PERF-IO-DISKSPD.json') {
-    document.getElementById('timeout').value = '10';
-    document.getElementById('exitWait').value = '2';
-  }
-});
-loadDefaultsBtn.addEventListener('click', function() {
-  if (profileSelect.value === 'PERF-IO-DISKSPD.json') {
-    document.getElementById('timeout').value = '10';
-    document.getElementById('exitWait').value = '2';
-  }
-});
 function showError(id, show, msg) {
   var el = document.getElementById(id);
   if (!el) return;
@@ -390,44 +435,89 @@ function validate() {
   } else {
     showError('packagePathError', false);
   }
-  if (profileSelect.value === 'custom' && !profileCustom.value.trim()) {
-    showError('profileError', true, 'Please enter a custom profile.');
-    valid = false;
-  } else if (!profileSelect.value) {
-    showError('profileError', true, 'Please select a profile.');
+  var profile = document.getElementById('profile');
+  if (!profile.value.trim()) {
+    showError('profileError', true, 'Please enter a profile name or path.');
     valid = false;
   } else {
     showError('profileError', false);
   }
   return valid;
 }
+function getFormParams() {
+  const data = {};
+  new FormData(form).forEach((value, key) => {
+    data[key] = value;
+  });
+  // Checkboxes
+  ['logToFile', 'debug', 'failFast'].forEach(cb => {
+    data[cb] = form[cb]?.checked || false;
+  });
+  // Clean targets logic
+  const cleanTargets = Array.from(document.querySelectorAll('input[name="clean_targets"]:checked')).map(cb => cb.value);
+  if (cleanTargets.includes('all')) {
+    data.clean = true;
+  } else if (cleanTargets.length > 0) {
+    data.clean = cleanTargets.join(',');
+  } else {
+    data.clean = false;
+  }
+  // Parameters from paramRows
+  const params = [];
+  paramRows.querySelectorAll('.param-row').forEach(row => {
+    const key = row.querySelector('.param-key').value.trim();
+    const value = row.querySelector('.param-value').value.trim();
+    if (key) params.push(key + '=' + value);
+  });
+  data.parameters = params.join(';');
+  return data;
+}
+function parseAdditionalArgs(args) {
+  // Simple parse: extract --key=value or --key value pairs
+  const regex = /--([\w-]+)(?:[= ]([^\s]+))?/g;
+  const found = {};
+  let match;
+  while ((match = regex.exec(args)) !== null) {
+    found[match[1]] = match[2] || true;
+  }
+  return found;
+}
+function checkConflicts(formData, additionalArgsObj) {
+  const conflicts = [];
+  Object.keys(formData).forEach(key => {
+    // Map form field to CLI arg name
+    let cliKey = key.replace(/([A-Z])/g, '-$1').toLowerCase();
+    if (cliKey.startsWith('-')) cliKey = cliKey.slice(1);
+    if (additionalArgsObj[cliKey]) {
+      conflicts.push('Parameter --' + cliKey + ' is set in both the form and additional arguments. The value from additional arguments will be used.');
+    }
+  });
+  return conflicts;
+}
 form.addEventListener('submit', function(e) {
   e.preventDefault();
   if (!validate()) return;
   submitBtn.disabled = true;
   submitBtn.textContent = 'Running...';
-  var formData = new FormData(form);
-  var data = {};
-  formData.forEach(function(value, key) {
-    var el = form.elements[key];
-    if (el && el.type === 'checkbox') {
-      data[key] = el.checked;
-    } else {
-      data[key] = value;
-    }
-  });
-  ['logToFile', 'clean', 'debug', 'failFast'].forEach(function(cbName) {
-    if (typeof data[cbName] === 'undefined') data[cbName] = false;
-  });
-  if (profileSelect.value === 'custom') {
-    data.profile = profileCustom.value;
-  } else {
-    data.profile = profileSelect.value;
+  const formData = getFormParams();
+  const additionalArgsVal = additionalArgs.value.trim();
+  let additionalArgsObj = {};
+  if (additionalArgsVal) {
+    additionalArgsObj = parseAdditionalArgs(additionalArgsVal);
   }
-  // Collect parameters from paramRows
-  var params = getParamList();
-  data.parameters = params.filter(function(p) { return p.key; }).map(function(p) { return p.key + '=' + p.value; }).join(';');
-  vscode.postMessage({ command: 'run', ...data });
+  // Conflict detection
+  const conflicts = checkConflicts(formData, additionalArgsObj);
+  if (conflicts.length > 0) {
+    conflictWarning.style.display = '';
+    conflictWarning.innerHTML = conflicts.map(function(c) { return '<div>' + c + '</div>'; }).join('');
+  } else {
+    conflictWarning.style.display = 'none';
+  }
+  // Merge: if present in additionalArgs, use that value
+  Object.keys(additionalArgsObj).forEach(key => {
+    formData[key] = additionalArgsObj[key];
+  });
+  vscode.postMessage({ command: 'run', ...formData, additionalArgs: additionalArgsVal });
 });
 window.addEventListener('message', function(event) {
   if (event.data && event.data.command === 'enableSubmit') {
