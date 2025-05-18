@@ -1,169 +1,83 @@
 # Virtual Client VS Code Extension
 
-[Virtual Client](https://microsoft.github.io/VirtualClient) is a cloud-ready, cross-platform workload automation tool from Microsoft Azure teams. It enables you to evaluate system performance using curated, expert-crafted profiles for CPU, GPU, memory, storage, network, and more, on Windows and Linux (x64/ARM64). See the [official documentation](https://microsoft.github.io/VirtualClient/docs/guides/0010-command-line/) for full details and command-line options.
-
-## Overview
-
-This Visual Studio Code extension allows you to manage remote machines, schedule and execute Virtual Client workloads, and monitor execution steps in real time—all from within VS Code.
+Run the [Virtual Client](https://github.com/microsoft/VirtualClient) tool on remote machines directly from Visual Studio Code. Manage remote machines, schedule and monitor runs, and stream logs—all from a convenient UI.
 
 ---
 
 ## Features
-
-- Add and manage remote machines (with credentials securely stored)
-- Schedule and execute Virtual Client runs on remote Windows machines via SSH
-- Real-time step-by-step status updates for each scheduled run (including transfer, extraction, and execution)
-- View logs and execution output directly in VS Code
-- After each scheduled run, the logs folder from the remote machine is automatically zipped, transferred, and extracted locally for easy access
-- Cancel scheduled runs
-- View detailed run history and logs in a webview
-- Tree views for both machines and scheduled runs
+- **Add/Remove Machines:** Manage a list of remote machines (Windows/Linux) via SSH (password authentication).
+- **Run Virtual Client:** Schedule and execute Virtual Client jobs on any registered machine.
+- **Stream & Download Logs:** View real-time logs in VS Code and download run logs for analysis.
+- **Scheduled Runs Management:** View, remove, and rerun scheduled jobs. Group runs by machine.
+- **Webview UI:** Rich forms for adding machines and scheduling runs.
+- **Secure Storage:** Credentials are stored securely using the VS Code Secrets API. No sensitive data is ever included in the extension package or source code.
 
 ---
 
-## Requirements
-
-- Visual Studio Code **v1.60+**
-- Remote machines must be accessible via SSH (Windows with PowerShell recommended)
-- Virtual Client package (zip) available locally
-- See [Virtual Client Requirements](https://microsoft.github.io/VirtualClient/docs/overview/) for supported platforms and prerequisites
-
----
-
-## Getting Started
-
-### 1. Install the Extension
-
-- From the [VS Code Marketplace](https://marketplace.visualstudio.com/) (if published), or
-- [Build and install from source](#development--contributing)
-
-### 2. Add a Remote Machine
-
-- Open the **Machines** view in the Activity Bar
-- Click the **+** button or use the context menu to add a new machine (name, IP, username, password)
-
-### 3. Run Virtual Client
-
-- Select a machine and choose **Run Virtual Client**
-- Fill in the package path, platform, and command-line options (see [Command Line Reference](https://microsoft.github.io/VirtualClient/docs/guides/0010-command-line/))
-- Submit to schedule a run. The run will appear in the **Scheduled Runs** tree and update in real time
-
-### 4. Monitor and Manage Runs
-
-- Watch each step update (directory creation, transfer, extraction, execution) in both the tree and webview
-- View logs and output after completion
-- Right-click a scheduled run to cancel or remove it
+## Installation
+- **From Marketplace:**
+  1. Search for `Virtual Client` in the Extensions view (`Ctrl+Shift+X`).
+  2. Click Install.
+- **From VSIX:**
+  1. Download the latest `.vsix` from [Releases](https://github.com/rudraptpsingh/VirtualClient-VSCode/releases).
+  2. In VS Code, run `Extensions: Install from VSIX...` and select the file.
 
 ---
 
-## Accessing Logs
+## Usage
+### 1. Add a Machine
+- Click the **Add Machine** button in the "Machines" view or use the command palette (`Ctrl+Shift+P` > `Add a New Machine (Webview)`).
+- Enter the machine's label, IP, username, and password. Platform is auto-detected if not specified.
 
-- All logs from scheduled runs are automatically downloaded and extracted to a local logs directory managed by the extension
-- You can view logs directly in the extension UI or open the log files from the context menu
+### 2. Run Virtual Client
+- Select a machine in the "Virtual Client" view and click **Run Virtual Client**.
+- Fill out the run form (package path, profile, system, options) and submit.
 
----
+### 3. View & Manage Runs
+- Scheduled runs appear under each machine in the tree view.
+- Right-click a run to view logs, remove, or rerun.
+- Use the **Remove All** button to clear all runs.
 
-## Development & Contributing
-
-### Project Structure
-
-```
-.
-├── src/                # TypeScript source code
-│   ├── extension.ts    # Main extension entry point
-│   ├── ...             # Providers, webview, command handlers, types, etc.
-│   └── test/           # Extension tests (Mocha)
-├── out/                # Compiled JavaScript output
-├── resources/          # Extension icons and assets
-├── package.json        # Extension manifest
-├── tsconfig.json       # TypeScript configuration
-├── README.md           # This file
-└── ...
-```
-
-### Install Dependencies
-
-```sh
-npm install
-```
-
-### Compile the Extension
-
-```sh
-npm run compile
-```
-
-- For development, you can use:
-  ```sh
-  npm run watch
-  ```
-
-### Debug/Run in VS Code
-
-- Open the project folder in VS Code
-- Press `F5` to launch a new Extension Development Host window with your extension loaded
-- Set breakpoints in `src/extension.ts` or other source files to debug
-
-### Run Tests
-
-- Compile the extension first:
-  ```sh
-  npm run compile
-  ```
-- Run the tests:
-  ```sh
-  npm test
-  ```
-- Tests are written using [Mocha](https://mochajs.org/) and located in `src/test/`
+### 4. Stream Logs
+- Select a run and choose **Stream Logs** to view real-time output in the Output panel.
 
 ---
 
-## Packaging & Publishing
-
-### Generate a VSIX File
-
-To package this extension into a `.vsix` file for installation or distribution:
-
-1. **Install vsce (if not already):**
-   ```sh
-   npm install -g @vscode/vsce
-   ```
-
-2. **Build the extension:**
-   ```sh
-   npm run compile
-   ```
-
-3. **Package the extension:**
-   ```sh
-   vsce package
-   ```
-   This will generate a `.vsix` file in your project directory.
-
-4. **Install the extension in VS Code:**
-   - Open the Command Palette (`Ctrl+Shift+P`)
-   - Run `Extensions: Install from VSIX...`
-   - Select your generated `.vsix` file
-
-5. **(Optional) Publish to Marketplace:**
-   - See [Publishing Extensions](https://code.visualstudio.com/api/working-with-extensions/publishing-extension)
+## Commands
+- `Add a New Machine (Webview)`
+- `Run Virtual Client`
+- `Add Machine`
+- `Delete Machine`
+- `Open Log File`
+- `View Run Log`
+- `Remove All`
+- `Refresh Machine Status`
+- `Remove Scheduled Run`
+- `Stream Logs`
 
 ---
 
-## Known Issues
+## Security & Data Storage
+- **Credentials:** Stored securely using VS Code's [Secrets API](https://code.visualstudio.com/api/references/vscode-api#SecretStorage). Never included in the VSIX or source code.
+- **Machine List & Runs:** Stored in VS Code's global state, local to your machine.
+- **No user data is ever uploaded or shared.**
 
-- Only Windows remote hosts are supported for full functionality
-- SSH key authentication is not yet supported (password only)
-- No support for Linux/ARM remote execution yet
+---
+
+## Troubleshooting
+- **SSH Connection Issues:** Ensure the remote machine is reachable and SSH password authentication is enabled.
+- **Virtual Client Not Found:** Make sure the package path is correct and the tool is present after extraction.
+- **Log Download Fails:** Check remote permissions and available disk space.
 
 ---
 
 ## Resources
-
-- [Virtual Client Documentation](https://microsoft.github.io/VirtualClient/)
-- [Command Line Reference](https://microsoft.github.io/VirtualClient/docs/guides/0010-command-line/)
-- [GitHub Repository](https://github.com/microsoft/VirtualClient)
+- [Virtual Client Documentation](https://github.com/microsoft/VirtualClient)
+- [Extension Source Code](https://github.com/rudraptpsingh/VirtualClient-VSCode)
+- [CHANGELOG.md](./CHANGELOG.md)
+- [LICENSE](./LICENSE)
 
 ---
 
-**Enjoy using Virtual Client and the VS Code Executor Extension!**
+## License
+This project is licensed under the terms of the [MIT License](./LICENSE).
