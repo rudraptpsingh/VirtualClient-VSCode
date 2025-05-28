@@ -515,7 +515,7 @@ async function handleAddMachine(context: vscode.ExtensionContext, machinesProvid
                     await machinesProvider.addMachine(label, ip, username, password, platform);
                     // Also update the global state for this machine with the platform
                     let machines = context.globalState.get<any[]>('machines', []);
-                    machines = machines.map(m => m.ip === ip ? { ...m, platform } : m);
+                    machines = machines.map((m: MachineItem) => m.ip === ip ? { ...m, platform } : m);
                     await context.globalState.update('machines', machines);
                     await machinesProvider.refreshConnectionStatusForMachine(ip); // Only refresh the new machine
                     resources.panel?.dispose();
@@ -553,7 +553,7 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
     
     // Get all machines from the provider
     const machines = await machinesProvider.getChildren();
-    const machineItems = machines.map(m => ({
+    const machineItems = machines.map((m: MachineItem) => ({
         label: m.label,
         ip: m.ip
     }));
@@ -747,6 +747,7 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                         resources.sftp = sftp;
                         // Execute steps in sequence
                         const executeSteps = async () => {
+                            let sftpDir: string | undefined = undefined;
                             try {
                                 progress.report({ message: 'Initializing run...' });
                                 // Step 0: Setup Machine
@@ -766,18 +767,18 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                                         logger?.debug(`[DEBUG] SFTP connection established`);
                                     }
                                     
-                                    // Create directory
-                                    await sftpMkdirRecursive(sftp, remoteTargetDir, logger);
+                                    // Create directory and get the relative SFTP path
+                                    sftpDir = await sftpMkdirRecursive(sftp, remoteTargetDir, logger);
                                     
-                                    // Verify directory was created
+                                    // Verify directory was created using the relative SFTP path
                                     await new Promise((resolve, reject) => {
-                                        sftp.stat(remoteTargetDir, (err: any) => {
+                                        sftp.stat(sftpDir, (err: any) => {
                                             if (err) {
                                                 const errorMsg = `Failed to verify directory creation: ${err.message}`;
                                                 logger?.error(errorMsg);
                                                 reject(new Error(errorMsg));
                                             } else {
-                                                logger?.debug(`[DEBUG] Successfully verified directory exists: ${remoteTargetDir}`);
+                                                logger?.debug(`[DEBUG] Successfully verified directory exists: ${sftpDir}`);
                                                 resolve(true);
                                             }
                                         });
@@ -840,12 +841,13 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                                     vscode.window.showErrorMessage(`Step 0.1 (Upload package) failed: ${detail}`);
                                     throw new Error(detail);
                                 }
+                                // Use sftpDir as the base for all subsequent SFTP operations (Linux/posix)
                                 const remotePackagePath = isWindows
                                     ? path.win32.join(remoteTargetDir, path.basename(message.packagePath))
-                                    : path.posix.join(remoteTargetDir, path.basename(message.packagePath));
+                                    : path.posix.join(sftpDir || remoteTargetDir, path.basename(message.packagePath));
                                 // Fix extracted directory path logic:
                                 const packageName = path.basename(message.packagePath, path.extname(message.packagePath));
-                                const extractDestDir = path.posix.join(remoteTargetDir.replace(/\\/g, '/'), packageName);
+                                const extractDestDir = path.posix.join(sftpDir || remoteTargetDir, packageName);
                                 const extractDestDirWin = path.win32.join(remoteTargetDir, packageName);
                                 const remoteExtractDir = isWindows ? extractDestDirWin : extractDestDir;
                                 logger?.debug(`[DEBUG] remotePackagePath: ${remotePackagePath}`);
@@ -1508,7 +1510,7 @@ async function handleRerun(context: vscode.ExtensionContext, item: ScheduledRunI
 
     // Get all machines from the provider
     const machines = await machinesProvider.getChildren();
-    const machineItems = machines.map(m => ({
+    const machineItems = machines.map((m: MachineItem) => ({
         label: m.label,
         ip: m.ip
     }));

@@ -25,35 +25,80 @@ export function sanitizeLabel(label: string): string {
 
 /**
  * Recursively creates remote directories over SFTP.
+ * Always operates on paths relative to SFTP root if SFTP root is not '/'.
+ * Returns the relative path used for SFTP operations.
  * @param sftp The SFTP connection.
  * @param remotePath The remote directory path to create.
  * @param logger Optional logger for debug output.
+ * @returns The relative path used for SFTP operations.
  */
-export async function sftpMkdirRecursive(sftp: any, remotePath: string, logger?: any): Promise<void> {
-    const parts = remotePath.split(/[\\/]/).filter(Boolean);
-    let current = remotePath.startsWith('/') ? '/' : '';
+export async function sftpMkdirRecursive(sftp: any, remotePath: string, logger?: any): Promise<string> {
+    // Normalize to POSIX path, remove trailing slash
+    let normPath = remotePath.replace(/\\/g, '/').replace(/\/+$/, '');
+    if (normPath === '~') { return '.'; }
+    // Determine SFTP root (usually user's home dir)
+    let sftpRoot = '/';
+    try {
+        await new Promise((resolve, reject) => {
+            sftp.realpath('.', (err: any, cwd: string) => {
+                if (!err && logger) {
+                    logger.info?.(`[INFO] SFTP initial working directory: ${cwd}`);
+                    sftpRoot = cwd;
+                }
+                resolve(true);
+            });
+        });
+    } catch {}
+    // If SFTP root is not '/', strip the root from the path if present
+    let relPath = normPath;
+    if (sftpRoot !== '/' && normPath.startsWith(sftpRoot)) {
+        relPath = normPath.substring(sftpRoot.length).replace(/^\/+/, '');
+    } else if (sftpRoot !== '/' && normPath.startsWith('/')) {
+        relPath = normPath.replace(/^\/+/, '');
+    }
+    // Split and build path
+    const parts = relPath.split('/').filter(Boolean);
+    let current = '.';
     for (const part of parts) {
+        if (part === '~') {
+            current = path.posix.join(current, part);
+            continue;
+        }
         current = path.posix.join(current, part);
         try {
             await new Promise((resolve, reject) => {
                 sftp.stat(current, (err: any) => {
                     if (!err) {
+                        // Directory exists
                         return resolve(true);
                     }
-                    sftp.mkdir(current, (err2: any) => {
-                        if (err2 && err2.code !== 4) {
-                            logger?.debug?.(`[DEBUG] Failed to mkdir ${current}: ${err2.message}`);
-                            return reject(err2);
+                    // If parent does not exist, fail fast
+                    const parent = path.posix.dirname(current);
+                    sftp.stat(parent, (parentErr: any) => {
+                        if (parentErr) {
+                            logger?.error?.(`[ERROR] Parent directory does not exist: ${parent}`);
+                            return reject(new Error(`Parent directory does not exist: ${parent}`));
                         }
-                        resolve(true);
+                        sftp.mkdir(current, (err2: any) => {
+                            if (err2) {
+                                if (err2.code === 4 || err2.code === 11) {
+                                    logger?.debug?.(`[DEBUG] mkdir ${current}: already exists or generic failure, continuing`);
+                                    return resolve(true);
+                                }
+                                logger?.debug?.(`[DEBUG] Failed to mkdir ${current}: ${err2.message}`);
+                                return reject(err2);
+                            }
+                            resolve(true);
+                        });
                     });
                 });
             });
         } catch (e) {
-            logger?.debug?.(`[DEBUG] Error in sftpMkdirRecursive: ${e instanceof Error ? e.message : e}`);
+            logger?.debug?.(`[DEBUG] Error in sftpMkdirRecursive at ${current}: ${e instanceof Error ? e.message : e}`);
             throw e;
         }
     }
+    return current;
 }
 
 /**
