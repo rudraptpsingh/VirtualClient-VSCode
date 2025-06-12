@@ -405,24 +405,36 @@ export async function activate(context: vscode.ExtensionContext) {
                     runLabel = step.parent.runLabel;
                 }
                 if (!runLabel) {
-                    vscode.window.showErrorMessage('Could not determine run label for logs.zip download.');
+                    vscode.window.showErrorMessage('Could not determine run label for logs archive download.');
                     return;
                 }
                 const logsDir = path.join(context.globalStoragePath, 'logs', sanitizeLabel(runLabel));
                 const zipPath = path.join(logsDir, 'logs.zip');
+                const tarPath = path.join(logsDir, 'logs.tar.gz');
+                let archivePath = '';
+                let archiveType = '';
                 try {
                     await fsPromises.access(zipPath);
+                    archivePath = zipPath;
+                    archiveType = 'zip';
                 } catch {
-                    vscode.window.showErrorMessage(`logs.zip not found or inaccessible: ${zipPath}`);
-                    return;
+                    try {
+                        await fsPromises.access(tarPath);
+                        archivePath = tarPath;
+                        archiveType = 'tar.gz';
+                    } catch {
+                        vscode.window.showErrorMessage(`Neither logs.zip nor logs.tar.gz found or accessible in: ${logsDir}`);
+                        return;
+                    }
                 }
+                const defaultFileName = archiveType === 'zip' ? 'logs.zip' : 'logs.tar.gz';
                 const uri = await vscode.window.showSaveDialog({
-                    defaultUri: vscode.Uri.file(path.join(os.homedir(), 'logs.zip')),
-                    saveLabel: 'Save logs.zip as...'
+                    defaultUri: vscode.Uri.file(path.join(os.homedir(), defaultFileName)),
+                    saveLabel: `Save logs.${archiveType} as...`
                 });
                 if (!uri) { return; }
-                await fsPromises.copyFile(zipPath, uri.fsPath);
-                vscode.window.showInformationMessage(`logs.zip saved to ${uri.fsPath}`);
+                await fsPromises.copyFile(archivePath, uri.fsPath);
+                vscode.window.showInformationMessage(`logs.${archiveType} saved to ${uri.fsPath}`);
             }),
             vscode.commands.registerCommand('virtual-client.refreshMachineStatus', async () => {
                 if (machinesProvider && typeof machinesProvider.refreshConnectionStatus === 'function') {
@@ -658,18 +670,31 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                     throw new Error('Platform is not set for the selected machine.');
                 }
                 const isWindows = platform.startsWith('win');
-                // Set the remote target directory automatically
-                let remoteTargetDir: string;
-                if (defaultRemoteTargetDir) {
-                    remoteTargetDir = defaultRemoteTargetDir;
-                } else if (isWindows) {
-                    remoteTargetDir = 'C:\\VirtualClientScheduler';
-                } else {
-                    remoteTargetDir = `/home/${os.userInfo().username}/VirtualClientScheduler`;
-                }
                 const credentials = await machinesProvider.getMachineCredentials(message.machineIp);
                 if (!credentials) {
                     throw new Error('Machine credentials not found');
+                }
+                // Set the remote target directory automatically
+                let remoteTargetDir: string;
+                if (defaultRemoteTargetDir) {
+                    if (isWindows) {
+                        remoteTargetDir = defaultRemoteTargetDir;
+                    } else {
+                        // If user set a default, but we're on Linux, ensure it's a POSIX path
+                        // If the defaultRemoteTargetDir is a Windows path, convert to POSIX
+                        if (defaultRemoteTargetDir.startsWith('C:') || defaultRemoteTargetDir.startsWith('\\')) {
+                            const remoteUser = credentials.username || 'vclientuser';
+                            remoteTargetDir = `/home/${remoteUser}/VirtualClientScheduler`;
+                        } else {
+                            remoteTargetDir = defaultRemoteTargetDir;
+                        }
+                    }
+                } else if (isWindows) {
+                    remoteTargetDir = 'C:\\VirtualClientScheduler';
+                } else {
+                    // Use the remote username for Linux home dir, fallback to 'vclientuser' if not present
+                    const remoteUser = credentials.username || 'vclientuser';
+                    remoteTargetDir = `/home/${remoteUser}/VirtualClientScheduler`;
                 }
                 // Update global state with last parameters (do not include remoteTargetDir)
                 const { remoteTargetDir: _removed, ...paramsToSave } = message;
@@ -714,15 +739,17 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                 logStream = fs.createWriteStream(logFilePath, { flags: 'a' });
                 outputChannel = vscode.window.createOutputChannel(`Virtual Client Logs - ${runItem.label}`);
                 outputChannel.show(true);
-                // Determine log level from run parameters (default: Info)
+                // Determine log level from VS Code configuration (default: Info)
                 const { LogLevel, Logger } = await import('./types');
+                const config = vscode.workspace.getConfiguration('virtualClient');
+                let loggerLogLevelStr = config.get<string>('loggerLogLevel', 'info');
                 let logLevel = LogLevel.Info;
-                if (typeof message.logLevel === 'string') {
-                    const levelStr = message.logLevel.toLowerCase();
-                    if (levelStr === 'debug') { logLevel = LogLevel.Debug; }
-                    else if (levelStr === 'info') { logLevel = LogLevel.Info; }
-                    else if (levelStr === 'warn' || levelStr === 'warning') { logLevel = LogLevel.Warning; }
-                    else if (levelStr === 'error') { logLevel = LogLevel.Error; }
+                switch (loggerLogLevelStr.toLowerCase()) {
+                    case 'debug': logLevel = LogLevel.Debug; break;
+                    case 'info': logLevel = LogLevel.Info; break;
+                    case 'warn': logLevel = LogLevel.Warning; break;
+                    case 'error': logLevel = LogLevel.Error; break;
+                    default: logLevel = LogLevel.Info;
                 }
                 logger = new Logger(logLevel, outputChannel, logStream);
                 logger.info(`Scheduled run started for ${runItem.label}`);
@@ -847,9 +874,10 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                                     : path.posix.join(sftpDir || remoteTargetDir, path.basename(message.packagePath));
                                 // Fix extracted directory path logic:
                                 const packageName = path.basename(message.packagePath, path.extname(message.packagePath));
-                                const extractDestDir = path.posix.join(sftpDir || remoteTargetDir, packageName);
-                                const extractDestDirWin = path.win32.join(remoteTargetDir, packageName);
-                                const remoteExtractDir = isWindows ? extractDestDirWin : extractDestDir;
+                                const extractDestDir = isWindows
+                                    ? path.win32.join(remoteTargetDir, packageName)
+                                    : path.posix.join(sftpDir || remoteTargetDir, packageName);
+                                const remoteExtractDir = isWindows ? extractDestDir : extractDestDir;
                                 logger?.debug(`[DEBUG] remotePackagePath: ${remotePackagePath}`);
                                 logger?.debug(`[DEBUG] remoteExtractDir: ${remoteExtractDir}`);
                                 const checkExtractedDirExists = async () => {
@@ -932,7 +960,7 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                                         const safeRemotePackagePath = remotePackagePath.replace(/'/g, "'\\''");
                                         if (machine.platform?.startsWith('win')) {
                                             checkExtractCmd = 'powershell -Command "Get-Command Expand-Archive"';
-                                            extractCmd = `powershell -Command \"Expand-Archive -Path '${remotePackagePath.replace(/\//g, '\\')}' -DestinationPath '${extractDestDirWin.replace(/\//g, '\\')}' -Force\"`;
+                                            extractCmd = `powershell -Command \"Expand-Archive -Path '${remotePackagePath.replace(/\//g, '\\')}' -DestinationPath '${extractDestDir.replace(/\//g, '\\')}' -Force\"`;
                                         } else if (remotePackagePath.endsWith('.zip')) {
                                             checkExtractCmd = 'command -v unzip';
                                             extractCmd = `unzip -o ${safeRemotePackagePath} -d ${shQuote(extractDestDir)}`;
@@ -956,13 +984,12 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                                                     }
                                                     let stdout = '';
                                                     let stderr = '';
+                                                    // Suppress per-line extraction output, only log on error or summary
                                                     stream.on('data', (data: Buffer) => {
                                                         stdout += data.toString();
-                                                        logger?.info('Extract stdout: ' + data.toString());
                                                     });
                                                     stream.stderr.on('data', (data: Buffer) => {
                                                         stderr += data.toString();
-                                                        logger?.warn('Extract stderr: ' + data.toString());
                                                     });
                                                     stream.on('close', async (code: number) => {
                                                         if (code === 0) {
@@ -992,8 +1019,6 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                                         } else {
                                             logger?.debug('[DEBUG] No extraction command defined for this package type.');
                                         }
-                                        // ... existing code ...
-
                             } catch (err) {
                                     logger?.debug(`[DEBUG] Upload or extraction failed: ${err instanceof Error ? err.message : err}`);
                                     logger?.error(`Step 0.1 (Upload or extraction) failed: ${err instanceof Error ? err.message : err}`);
@@ -1032,7 +1057,7 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                             }
                             let toolPath, toolDir;
                             if (isWindows) {
-                                toolPath = path.win32.join(extractDestDirWin, 'content', platform, toolExecutable);
+                                toolPath = path.win32.join(extractDestDir, 'content', platform, toolExecutable);
                                 toolDir = path.win32.dirname(toolPath);
                             } else {
                                 toolPath = path.posix.join(extractDestDir, 'content', platform, toolExecutable);
@@ -1040,6 +1065,7 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                             }
                             // --- TOOL PATH VALIDATION AND LOGGING ---
                             // Validate tool path exists on remote before running
+                            logger?.info(`[INFO] Tool path verified: ${toolPath}`);
                             logger?.debug(`[DEBUG] Tool path: ${toolPath}`);
                             let toolExists = false;
                             try {
@@ -1054,6 +1080,21 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                                 });
                             } catch (err) {
                                 logger?.debug(`[DEBUG] Tool path validation error: ${err instanceof Error ? err.message : err}`);
+                            }
+                            // For Linux: chmod +x VirtualClient after validation
+                            if (!isWindows && toolExists) {
+                                await new Promise((resolve, reject) => {
+                                    resources.conn!.exec(`chmod +x ${shQuote(toolPath)}`, (err: Error | undefined, stream: any) => {
+                                        if (err) {
+                                            logger?.warn(`chmod +x failed: ${err.message}`);
+                                            return resolve(true); // Don't fail the run for chmod error
+                                        }
+                                        stream.on('close', () => resolve(true));
+                                        stream.on('data', () => {});
+                                        stream.stderr.on('data', () => {});
+                                    });
+                                });
+                                logger?.debug(`[DEBUG] Ran chmod +x on ${toolPath}`);
                             }
                             if (runItem.steps[1].substeps && runItem.steps[1].substeps[0]) {
                                 if (toolExists) {
@@ -1136,7 +1177,8 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                             if (platform && isWindows) {
                                 command = `"${toolPath}"${vcCmd}`;
                             } else {
-                                command = `${shQuote(toolPath)}${vcCmd}`;
+                                // For Linux: run as sudo with password from credentials
+                                command = `echo '${credentials.password.replace(/'/g, "'\\''")}' | sudo -S ${shQuote(toolPath)}${vcCmd}`;
                             }
                             logger?.debug(`[DEBUG] Command to execute: ${command}`);
                             // Run the command in the remote target directory, capture PID
@@ -1221,66 +1263,106 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
 
                             // Step 2: Transfer Logs
                             const logsStep = new ScheduledRunStep('Transfer Logs', 'running', undefined, [
-                                new ScheduledRunStep('Zip Logs Folder', 'pending'),
-                                new ScheduledRunStep('Download Logs Zip', 'pending'),
+                                new ScheduledRunStep('Archive Logs Folder', 'pending'),
+                                new ScheduledRunStep('Download Logs Archive', 'pending'),
                                 new ScheduledRunStep('Extract Logs Locally', 'pending')
                             ]);
-                            // Set runLabel on Extract Logs Locally step for download button
-                            if (logsStep.substeps && logsStep.substeps[2]) {
-                                (logsStep.substeps[2] as any).runLabel = runItem.label;
-                            }
                             runItem.steps.push(logsStep);
                             scheduledRunsProvider.update();
 
                             try {
-                                // 1. Zip logs folder on remote
-                                const remoteLogsDir = path.win32.join(extractDestDirWin, 'content', platform, 'logs');
-                                const remoteZipPath = path.win32.join(extractDestDirWin, 'content', platform, 'logs.zip');
-                                const zipCmd = `powershell -Command "Compress-Archive -Path '${remoteLogsDir}/*' -DestinationPath '${remoteZipPath}' -Force"`;
-                                logger?.debug('[DEBUG] Starting Transfer Logs > Zip Logs Folder');
+                                // 1. Archive logs folder on remote
+                                let remoteLogsDir: string, remoteArchivePath: string, archiveCmd: string, isTar: boolean = false;
+                                if (isWindows) {
+                                    remoteLogsDir = path.win32.join(extractDestDir, 'content', platform, 'logs');
+                                    remoteArchivePath = path.win32.join(extractDestDir, 'content', platform, 'logs.zip');
+                                    archiveCmd = `powershell -Command "Compress-Archive -Path '${remoteLogsDir}/*' -DestinationPath '${remoteArchivePath}' -Force"`;
+                                } else {
+                                    remoteLogsDir = path.posix.join(extractDestDir, 'content', platform, 'logs');
+                                    remoteArchivePath = path.posix.join(extractDestDir, 'content', platform, 'logs.tar.gz');
+                                    archiveCmd = `tar -czf ${shQuote(remoteArchivePath)} -C ${shQuote(remoteLogsDir)} .`;
+                                    isTar = true;
+                                }
+                                // Set runLabel and download path on Extract Logs Locally step for download button (after isTar is set)
+                                if (logsStep.substeps && logsStep.substeps[2]) {
+                                    (logsStep.substeps[2] as any).runLabel = runItem.label;
+                                    (logsStep.substeps[2] as any).archivePath = path.join(
+                                        context.globalStoragePath,
+                                        'logs',
+                                        sanitizeLabel(runItem.label),
+                                        isTar ? 'logs.tar.gz' : 'logs.zip'
+                                    );
+                                }
+                                logger?.debug('[DEBUG] Starting Transfer Logs > Archive Logs Folder');
                                 logger?.debug(`[DEBUG] Remote logs directory: ${remoteLogsDir}`);
-                                logger?.debug(`[DEBUG] Remote zip path: ${remoteZipPath}`);
-                                logger?.debug(`[DEBUG] Zip command: ${zipCmd}`);
+                                logger?.debug(`[DEBUG] Remote archive path: ${remoteArchivePath}`);
+                                logger?.debug(`[DEBUG] Archive command: ${archiveCmd}`);
                                 logsStep.substeps![0].status = 'running'; scheduledRunsProvider.update();
                                 await new Promise((resolve, reject) => {
-                                    resources.conn!.exec(zipCmd, (err: Error | undefined, stream: any) => {
-                                        if (err) {
-                                            logger?.debug(`[DEBUG] Error starting zip command: ${err.message}`);
-                                            return reject(err);
-                                        }
-                                        let stderr = '';
-                                        let stdout = '';
-                                        stream.on('data', (data: Buffer) => {
-                                            stdout += data.toString();
-                                            logger?.info(`[DEBUG] Zip stdout: ${data.toString()}`);
-                                        });
-                                        stream.stderr.on('data', (data: Buffer) => {
-                                            stderr += data.toString();
-                                            logger?.warn(`[DEBUG] Zip stderr: ${data.toString()}`);
-                                        });
-                                        stream.on('close', (code: number) => {
-                                            logger?.debug(`[DEBUG] Zip command exited with code ${code}`);
-                                            if (code === 0) { resolve(true); }
-                                            else {
-                                                logger?.debug(`[DEBUG] Zip failed with stderr: ${stderr}`);
-                                                reject(new Error(`Zip failed: ${stderr}`));
+                                    if (isWindows) {
+                                        resources.conn!.exec(archiveCmd, (err: Error | undefined, stream: any) => {
+                                            if (err) {
+                                                logger?.debug(`[DEBUG] Error starting archive command: ${err.message}`);
+                                                return reject(err);
                                             }
+                                            let stderr = '';
+                                            let stdout = '';
+                                            stream.on('data', (data: Buffer) => {
+                                                stdout += data.toString();
+                                                logger?.info(`[DEBUG] Archive stdout: ${data.toString()}`);
+                                            });
+                                            stream.stderr.on('data', (data: Buffer) => {
+                                                stderr += data.toString();
+                                                logger?.warn(`[DEBUG] Archive stderr: ${data.toString()}`);
+                                            });
+                                            stream.on('close', (code: number) => {
+                                                logger?.debug(`[DEBUG] Archive command exited with code ${code}`);
+                                                if (code === 0) { resolve(true); }
+                                                else { reject(new Error(`Archive failed with code ${code}: ${stderr}`)); }
+                                            });
                                         });
-                                    });
+                                    } else {
+                                        resources.conn!.exec(archiveCmd, (err: Error | undefined, stream: any) => {
+                                            if (err) {
+                                                logger?.debug(`[DEBUG] Error starting archive command: ${err.message}`);
+                                                return reject(err);
+                                            }
+                                            let stderr = '';
+                                            let stdout = '';
+                                            stream.on('data', (data: Buffer) => {
+                                                stdout += data.toString();
+                                                logger?.info(`[DEBUG] Archive stdout: ${data.toString()}`);
+                                            });
+                                            stream.stderr.on('data', (data: Buffer) => {
+                                                stderr += data.toString();
+                                                logger?.warn(`[DEBUG] Archive stderr: ${data.toString()}`);
+                                            });
+                                            stream.on('close', (code: number) => {
+                                                logger?.debug(`[DEBUG] Archive command exited with code ${code}`);
+                                                if (code === 0) { resolve(true); }
+                                                else { reject(new Error(`Archive failed with code ${code}: ${stderr}`)); }
+                                            });
+                                        });
+                                    }
                                 });
-                                logger?.debug('[DEBUG] Finished Transfer Logs > Zip Logs Folder');
+                                logger?.debug('[DEBUG] Finished Transfer Logs > Archive Logs Folder');
                                 logsStep.substeps![0].status = 'success'; scheduledRunsProvider.update();
 
-                                // 2. Download logs.zip
+                                // 2. Download archive
                                 logsStep.substeps![1].status = 'running'; scheduledRunsProvider.update();
                                 const localLogsDir = path.join(context.globalStoragePath, 'logs', sanitizeLabel(runItem.label));
                                 await fsPromises.mkdir(localLogsDir, { recursive: true });
-                                const localZipPath = path.join(localLogsDir, 'logs.zip');
-                                await sftpDownloadFile(sftp, remoteZipPath, localZipPath);
-                                // Cleanup: delete logs.zip on remote
-                                const cleanupZipCmd = `powershell -Command "Remove-Item -Path '${remoteZipPath.replace(/'/g, "''")}' -Force"`;
+                                const localArchivePath = path.join(localLogsDir, isTar ? 'logs.tar.gz' : 'logs.zip');
+                                await sftpDownloadFile(sftp, remoteArchivePath, localArchivePath);
+                                // Cleanup: delete archive on remote
+                                let cleanupArchiveCmd: string;
+                                if (isWindows) {
+                                    cleanupArchiveCmd = `powershell -Command "Remove-Item -Path '${remoteArchivePath.replace(/'/g, "''")}' -Force"`;
+                                } else {
+                                    cleanupArchiveCmd = `rm -f ${shQuote(remoteArchivePath)}`;
+                                }
                                 await new Promise((resolve, reject) => {
-                                    resources.conn!.exec(cleanupZipCmd, (err: Error | undefined, stream: any) => {
+                                    resources.conn!.exec(cleanupArchiveCmd, (err: Error | undefined, stream: any) => {
                                         if (err) { resolve(true); return; } // Don't fail the run if cleanup fails
                                         stream.on('close', () => resolve(true));
                                         stream.on('data', () => {});
@@ -1289,16 +1371,34 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                                 });
                                 logsStep.substeps![1].status = 'success'; scheduledRunsProvider.update();
 
-                                // 3. Extract logs.zip locally
+                                // 3. Extract archive locally
                                 logsStep.substeps![2].status = 'running'; scheduledRunsProvider.update();
-                                await extractZip(localZipPath, localLogsDir);
+                                if (isTar) {
+                                    // Use tar.exe on Windows, tar on Linux/Mac
+                                    const tarCmd = process.platform === 'win32'
+                                        ? `tar.exe -xzf "${localArchivePath}" -C "${localLogsDir}"`
+                                        : `tar -xzf "${localArchivePath}" -C "${localLogsDir}"`;
+                                    const { exec } = require('child_process');
+                                    await new Promise((resolve, reject) => {
+                                        exec(tarCmd, (error: any, stdout: string, stderr: string) => {
+                                            if (error) {
+                                                logger?.error(`[DEBUG] Error extracting logs.tar.gz: ${stderr}`);
+                                                return reject(new Error(`Failed to extract logs.tar.gz: ${stderr}`));
+                                            }
+                                            logger?.debug(`[DEBUG] Extracted logs.tar.gz: ${stdout}`);
+                                            resolve(true);
+                                        });
+                                    });
+                                } else {
+                                    await extractZip(localArchivePath, localLogsDir);
+                                }
                                 logsStep.substeps![2].status = 'success'; scheduledRunsProvider.update();
 
                                 // Recursively walk the logs directory and build tree nodes
                                 async function buildLogSteps(dir: string, parentStep: any, relPath: string): Promise<ScheduledRunStep[]> {
                                     const entries = await fsPromises.readdir(dir, { withFileTypes: true });
                                     const stepsPromises = entries.map(async (entry) => {
-                                        if (entry.name === 'logs.zip') { return null; }
+                                        if (entry.name === 'logs.zip' || entry.name === 'logs.tar.gz') { return null; }
                                         const fullPath = path.join(dir, entry.name);
                                         const entryRelPath = relPath ? path.posix.join(relPath, entry.name) : entry.name;
                                         if (entry.isDirectory()) {

@@ -146,6 +146,18 @@
           "icon": "$(refresh)"
         }
       ]
+    },
+    "configuration": {
+      "type": "object",
+      "title": "VSCode-VC Configuration",
+      "properties": {
+        "virtualClient.loggerLogLevel": {
+          "type": "string",
+          "enum": ["debug", "info", "warn", "error"],
+          "default": "debug",
+          "description": "Log level for the VSCode-VC extension's internal logger. Set to 'debug' for verbose logs."
+        }
+      }
     }
   },
   "scripts": {
