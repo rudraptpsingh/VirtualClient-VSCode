@@ -15,6 +15,8 @@ import { VirtualClientTreeViewProvider } from './VirtualClientTreeViewProvider';
 import { MachineCredentials } from './types';
 import { ScheduledRunsProvider, ScheduledRunItem, ScheduledRunStep } from './ScheduledRunsProvider';
 import { MachinesProvider, MachineItem } from './machinesProvider';
+import { TemplateManager } from './templateManager';
+import { getEnhancedRunVirtualClientWebviewContent } from './templateWebview';
 import { 
     shQuote, 
     sanitizeLabel, 
@@ -107,6 +109,7 @@ import { buildLogFileTree } from './logTreeUtils';
 export let scheduledRunsProvider: ScheduledRunsProvider;
 let treeViewProvider: VirtualClientTreeViewProvider | undefined;
 let machinesProvider: MachinesProvider;
+let templateManager: TemplateManager;
 
 // Resource management interface
 interface ResourceManager {
@@ -234,11 +237,13 @@ let defaultRemoteTargetDir: string | undefined;
  * Activates the extension, registers providers and commands, and initializes state.
  * @param context The extension context.
  */
-export async function activate(context: vscode.ExtensionContext) {
-    try {
-        // Initialize providers
+export async function activate(context: vscode.ExtensionContext) {    try {        // Initialize providers
         scheduledRunsProvider = new ScheduledRunsProvider(context);
         machinesProvider = new MachinesProvider(context);
+        templateManager = new TemplateManager(context);
+        
+        // Initialize template manager
+        await templateManager.initialize();
         
         // Load any existing scheduled runs
         const existingRuns = await loadScheduledRuns(context);
@@ -420,6 +425,93 @@ export async function activate(context: vscode.ExtensionContext) {
                 if (confirm === REMOVE_LABEL) {
                     scheduledRunsProvider.removeRun(item.runId);
                     vscode.window.showInformationMessage(`Scheduled run for ${item.label} has been removed.`);
+                }            }),
+            
+            // Template management commands
+            vscode.commands.registerCommand('virtual-client.saveTemplate', async (templateData: any) => {
+                try {
+                    const template = await templateManager.saveTemplate(
+                        templateData.name,
+                        templateData.description,
+                        templateData.parameters,
+                        templateData.category,
+                        templateData.tags
+                    );
+                    vscode.window.showInformationMessage(`Template "${template.name}" saved successfully.`);
+                    return template;
+                } catch (error) {
+                    vscode.window.showErrorMessage(`Failed to save template: ${error instanceof Error ? error.message : error}`);
+                }
+            }),
+            
+            vscode.commands.registerCommand('virtual-client.loadTemplate', async (templateId: string) => {
+                try {
+                    const template = await templateManager.loadTemplate(templateId);
+                    if (template) {
+                        return template;
+                    } else {
+                        vscode.window.showErrorMessage('Template not found.');
+                    }
+                } catch (error) {
+                    vscode.window.showErrorMessage(`Failed to load template: ${error instanceof Error ? error.message : error}`);
+                }
+            }),
+              vscode.commands.registerCommand('virtual-client.deleteTemplate', async (templateId: string) => {
+                try {
+                    const success = await templateManager.deleteTemplate(templateId);
+                    if (success) {
+                        vscode.window.showInformationMessage('Template deleted successfully.');
+                    } else {
+                        vscode.window.showWarningMessage('Template not found or could not be deleted.');
+                    }
+                } catch (error) {
+                    vscode.window.showErrorMessage(`Failed to delete template: ${error instanceof Error ? error.message : error}`);
+                }}),
+            
+            vscode.commands.registerCommand('virtual-client.exportTemplates', async () => {
+                try {
+                    const allTemplates = templateManager.getAllTemplates();
+                    if (allTemplates.length === 0) {
+                        vscode.window.showInformationMessage('No templates available to export.');
+                        return;
+                    }
+                    
+                    const uri = await vscode.window.showSaveDialog({
+                        defaultUri: vscode.Uri.file(path.join(os.homedir(), 'vc-templates.json')),
+                        saveLabel: 'Export Templates',
+                        filters: {
+                            'JSON Files': ['json']
+                        }
+                    });
+                    
+                    if (uri) {
+                        const templateIds = allTemplates.map(t => t.id);
+                        await templateManager.exportTemplates(templateIds, uri.fsPath);
+                        vscode.window.showInformationMessage(`Templates exported to ${uri.fsPath}`);
+                    }
+                } catch (error) {
+                    vscode.window.showErrorMessage(`Failed to export templates: ${error instanceof Error ? error.message : error}`);
+                }
+            }),
+            
+            vscode.commands.registerCommand('virtual-client.importTemplates', async () => {
+                try {
+                    const uri = await vscode.window.showOpenDialog({
+                        canSelectFiles: true,
+                        canSelectFolders: false,
+                        canSelectMany: false,
+                        openLabel: 'Import Templates',
+                        filters: {
+                            'JSON Files': ['json']
+                        }
+                    });
+                    
+                    if (uri && uri[0]) {
+                        const imported = await templateManager.importTemplates(uri[0].fsPath);
+                        vscode.window.showInformationMessage(`Imported ${imported} template(s) successfully.`);
+                    }
+                } catch (error) {
+                    vscode.window.showErrorMessage(`Failed to import templates: ${error instanceof Error ? error.message : error}`);
                 }
             }),
         ];
@@ -521,11 +613,12 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
     const resources = new RunResourceManager();
     
     // Get all machines from the provider
-    const machines = await machinesProvider.getChildren();
-    const machineItems = machines.map((m: MachineItem) => ({
+    const machines = await machinesProvider.getChildren();    const machineItems = machines.map((m: MachineItem) => ({
         label: m.label,
         ip: m.ip
-    }));    // Load last parameters
+    }));
+    
+    // Load last parameters
     const lastParameters = await loadLastRunParameters(context);
 
     const steps = createRunSteps();
@@ -543,11 +636,11 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
             enableScripts: true,
             localResourceRoots: [vscode.Uri.file(path.join(context.extensionPath, 'media'))],
             retainContextWhenHidden: true
-        }
-    );
-
+        }    );
+    
     // Set content security policy
-    resources.panel.webview.html = getRunVirtualClientWebviewContent(machineItems, lastParameters, webviewSteps, resources.panel.webview);
+    const templates = templateManager.getAllTemplates();
+    resources.panel.webview.html = getEnhancedRunVirtualClientWebviewContent(machineItems, lastParameters, webviewSteps, resources.panel.webview, templates);
 
     resources.panel.webview.onDidReceiveMessage(async (message: any) => {
         if (message.command === 'detectPlatform') {
@@ -568,6 +661,109 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
             } catch {
                 resources.panel?.webview.postMessage({ command: 'platformDetected', platform: '' });
             }
+            return;
+        }
+        
+        // Template handling
+        if (message.command === 'getTemplates') {
+            const templates = templateManager.getAllTemplates();
+            resources.panel?.webview.postMessage({ 
+                command: 'templatesLoaded', 
+                templates 
+            });
+            return;
+        }
+        
+        if (message.command === 'loadTemplate') {
+            try {
+                const template = await templateManager.loadTemplate(message.templateId);
+                if (template) {
+                    resources.panel?.webview.postMessage({ 
+                        command: 'templateLoaded', 
+                        template 
+                    });
+                }
+            } catch (error) {
+                vscode.window.showErrorMessage(`Failed to load template: ${error instanceof Error ? error.message : error}`);
+            }
+            return;
+        }        if (message.command === 'saveTemplate') {
+            try {
+                console.log('Extension received saveTemplate command with data:', message.templateData);
+                const template = await templateManager.saveTemplate(
+                    message.templateData.name,
+                    message.templateData.description,
+                    message.templateData.parameters,
+                    message.templateData.category,
+                    message.templateData.tags
+                );
+                console.log('Template saved successfully:', template);
+                // Send updated templates list after saving
+                const templates = templateManager.getAllTemplates();
+                resources.panel?.webview.postMessage({ 
+                    command: 'templateSaved', 
+                    template 
+                });
+                resources.panel?.webview.postMessage({ 
+                    command: 'templatesLoaded', 
+                    templates 
+                });
+                vscode.window.showInformationMessage(`Template "${template.name}" saved successfully.`);
+            } catch (error) {
+                console.error('Save template error:', error);
+                vscode.window.showErrorMessage(`Failed to save template: ${error instanceof Error ? error.message : error}`);
+            }
+            return;        }
+        
+        if (message.command === 'deleteTemplate') {
+            try {
+                console.log(`Extension received deleteTemplate command with ID: ${message.templateId}`);
+                const success = await templateManager.deleteTemplate(message.templateId);
+                console.log(`Template deletion result: ${success}`);
+                if (success) {
+                    // Send updated templates list after deletion
+                    const templates = templateManager.getAllTemplates();
+                    console.log(`Sending templateDeleted message to webview`);
+                    resources.panel?.webview.postMessage({ 
+                        command: 'templateDeleted' 
+                    });
+                    resources.panel?.webview.postMessage({ 
+                        command: 'templatesLoaded', 
+                        templates 
+                    });
+                    vscode.window.showInformationMessage('Template deleted successfully.');
+                } else {
+                    console.warn(`Template deletion failed - template not found`);
+                    vscode.window.showErrorMessage('Template not found or could not be deleted.');
+                }
+            } catch (error) {
+                console.error(`Template deletion error: ${error}`);
+                vscode.window.showErrorMessage(`Failed to delete template: ${error instanceof Error ? error.message : error}`);
+            }
+            return;}
+        
+        if (message.command === 'exportTemplates') {
+            await vscode.commands.executeCommand('virtual-client.exportTemplates');
+            return;
+        }
+        
+        if (message.command === 'importTemplates') {
+            await vscode.commands.executeCommand('virtual-client.importTemplates');
+            // Refresh templates in webview
+            const templates = templateManager.getAllTemplates();
+            resources.panel?.webview.postMessage({ 
+                command: 'templatesLoaded', 
+                templates 
+            });
+            return;
+        }
+        
+        if (message.command === 'showMessage') {
+            vscode.window.showInformationMessage(message.text);
+            return;
+        }
+        
+        if (message.command !== 'run') {
             return;
         }
         // --- LOG FILE VARS ---

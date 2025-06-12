@@ -5,6 +5,7 @@
 // Directory and file names
 export const LOGS_DIR_NAME = 'logs';
 export const LOGS_SUBDIR = 'logs';
+export const TEMPLATES_DIR_NAME = 'templates';
 export const LOG_FILE_EXTENSION = '.log';
 export const JSON_FILE_EXTENSION = '.json';
 export const LOGS_ZIP = 'logs.zip';

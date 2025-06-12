@@ -1,22 +1,24 @@
-{
-  "name": "virtual-client",
+{  "name": "virtual-client",
   "publisher": "rudraptpsingh",
   "displayName": "Virtual Client",
-  "description": "Runs Virtual Client tool on a remote machine",
-  "version": "0.0.1",
+  "description": "Runs Virtual Client tool on a remote machine with template support",
+  "version": "0.1.0",
   "engines": {
     "vscode": "^1.99.0"
   },
   "categories": [
     "Other"
-  ],
-  "keywords": [
+  ],  "keywords": [
     "virtual client",
     "remote",
     "ssh",
     "automation",
     "benchmark",
-    "machine management"
+    "machine management",
+    "templates",
+    "profiles",
+    "configuration",
+    "testing"
   ],
   "main": "./out/extension.js",
   "activationEvents": [
@@ -63,10 +65,33 @@
       {
         "command": "virtual-client.refreshMachineStatus",
         "title": "Refresh Machine Status"
-      },
-      {
+      },      {
         "command": "virtual-client.removeScheduledRun",
         "title": "Remove Scheduled Run"
+      },
+      {
+        "command": "virtual-client.saveTemplate",
+        "title": "Save as Template"
+      },
+      {
+        "command": "virtual-client.loadTemplate",
+        "title": "Load Template"
+      },
+      {
+        "command": "virtual-client.deleteTemplate",
+        "title": "Delete Template"
+      },
+      {
+        "command": "virtual-client.duplicateTemplate",
+        "title": "Duplicate Template"
+      },
+      {
+        "command": "virtual-client.exportTemplates",
+        "title": "Export Templates"
+      },
+      {
+        "command": "virtual-client.importTemplates",
+        "title": "Import Templates"
       }
     ],
     "viewsContainers": {

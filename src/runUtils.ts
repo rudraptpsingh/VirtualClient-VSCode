@@ -4,9 +4,10 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { sanitizeLabel } from './utils';
-import { UNKNOWN_LABEL, UNKNOWN_IP, JSON_FILE_EXTENSION, LOGS_DIR_NAME, LOG_LABEL_PREFIX } from './constants';
+import { UNKNOWN_LABEL, UNKNOWN_IP, JSON_FILE_EXTENSION, LOGS_DIR_NAME, LOG_LABEL_PREFIX, TEMPLATES_DIR_NAME } from './constants';
 import { ensureDirectoryExistsWithLogging } from './fileUtils';
 import type { Logger } from './types';
+import { TemplateManager, RunTemplate, TemplateCategory } from './templateManager';
 
 /**
  * Extract run label from step or run object
@@ -145,4 +146,181 @@ export function getLogFilePath(
         const safeLabel = runLabel.replace(/[\\/:"*?<>|,]/g, '-');
         return path.join(logsDir, `${safeLabel}.log`);
     }
+}
+
+/**
+ * Create a template from current run parameters
+ */
+export async function createTemplateFromParameters(
+    context: vscode.ExtensionContext,
+    templateManager: TemplateManager,
+    name: string,
+    description: string,
+    category: TemplateCategory,
+    parameters: any,
+    tags?: string[]
+): Promise<RunTemplate | undefined> {
+    try {
+        // Convert run parameters to template parameters format
+        const templateParams = {
+            packagePath: parameters.packagePath,
+            profile: parameters.profile,
+            system: parameters.system,
+            timeout: parameters.timeout,
+            iterations: parameters.iterations,
+            exitWait: parameters.exitWait,
+            dependencies: parameters.dependencies,
+            parameters: parameters.parameters,
+            proxyApi: parameters.proxyApi,
+            packageStore: parameters.packageStore,
+            eventHub: parameters.eventHub,
+            experimentId: parameters.experimentId,
+            clientId: parameters.clientId,
+            metadata: parameters.metadata,
+            port: parameters.port,
+            ipAddress: parameters.ipAddress,
+            contentStore: parameters.contentStore,
+            contentPath: parameters.contentPath,
+            layoutPath: parameters.layoutPath,
+            packageDir: parameters.packageDir,
+            stateDir: parameters.stateDir,
+            logDir: parameters.logDir,
+            logRetention: parameters.logRetention,
+            seed: parameters.seed,
+            scenarios: parameters.scenarios,
+            logger: parameters.logger,
+            wait: parameters.wait,
+            logToFile: parameters.logToFile,
+            clean: parameters.clean,
+            debug: parameters.debug,
+            failFast: parameters.failFast,
+            logLevel: parameters.logLevel,
+            additionalArgs: parameters.additionalArgs
+        };        const template = await templateManager.saveTemplate(
+            name,
+            description,
+            templateParams,
+            category,
+            tags
+        );
+
+        return template;
+    } catch (error) {
+        vscode.window.showErrorMessage(`Failed to create template: ${error instanceof Error ? error.message : error}`);
+        return undefined;
+    }
+}
+
+/**
+ * Apply template parameters to form data
+ */
+export function applyTemplateToParameters(template: RunTemplate): any {
+    return {
+        // Don't include machine IP or package path from template as these are machine-specific
+        profile: template.parameters.profile,
+        system: template.parameters.system || '',
+        timeout: template.parameters.timeout || 10,
+        iterations: template.parameters.iterations || 1,
+        exitWait: template.parameters.exitWait || 2,
+        dependencies: template.parameters.dependencies || '',
+        parameters: template.parameters.parameters || '',
+        proxyApi: template.parameters.proxyApi || '',
+        packageStore: template.parameters.packageStore || '',
+        eventHub: template.parameters.eventHub || '',
+        experimentId: template.parameters.experimentId || '',
+        clientId: template.parameters.clientId || '',
+        metadata: template.parameters.metadata || '',
+        port: template.parameters.port || '',
+        ipAddress: template.parameters.ipAddress || '',
+        contentStore: template.parameters.contentStore || '',
+        contentPath: template.parameters.contentPath || '',
+        layoutPath: template.parameters.layoutPath || '',
+        packageDir: template.parameters.packageDir || '',
+        stateDir: template.parameters.stateDir || '',
+        logDir: template.parameters.logDir || '',
+        logRetention: template.parameters.logRetention || '',
+        seed: template.parameters.seed || '',
+        scenarios: template.parameters.scenarios || '',
+        logger: template.parameters.logger || '',
+        wait: template.parameters.wait || '',
+        logToFile: template.parameters.logToFile || false,
+        clean: template.parameters.clean || false,
+        debug: template.parameters.debug || false,
+        failFast: template.parameters.failFast || false,
+        logLevel: template.parameters.logLevel || '',
+        additionalArgs: template.parameters.additionalArgs || ''
+    };
+}
+
+/**
+ * Get predefined templates for quick start
+ */
+export function getPredefinedTemplates(): Partial<RunTemplate>[] {
+    return [
+        {
+            name: 'CPU Performance Benchmark',
+            description: 'Standard CPU performance testing with OpenSSL benchmark',
+            category: TemplateCategory.Performance,
+            parameters: {
+                profile: 'PERF-CPU-OPENSSL.json',
+                timeout: 30,
+                iterations: 3,
+                logLevel: 'Information',
+                logToFile: true,
+                parameters: 'PackageName=openssl'
+            }
+        },
+        {
+            name: 'Memory Stress Test',
+            description: 'Memory allocation and stress testing',
+            category: TemplateCategory.Stress,
+            parameters: {
+                profile: 'PERF-MEMORY.json',
+                timeout: 60,
+                iterations: 1,
+                logLevel: 'Information',
+                logToFile: true,
+                debug: true
+            }
+        },
+        {
+            name: 'Network Performance Test',
+            description: 'Network throughput and latency testing',
+            category: TemplateCategory.Networking,
+            parameters: {
+                profile: 'PERF-NETWORK.json',
+                timeout: 45,
+                iterations: 2,
+                logLevel: 'Information',
+                logToFile: true,
+                parameters: 'TestDuration=300'
+            }
+        },
+        {
+            name: 'Storage I/O Benchmark',
+            description: 'Disk I/O performance testing with FIO',
+            category: TemplateCategory.Storage,
+            parameters: {
+                profile: 'PERF-IO-FIO.json',
+                timeout: 120,
+                iterations: 1,
+                logLevel: 'Information',
+                logToFile: true,
+                parameters: 'DiskFill=true;FileSize=1GB'
+            }
+        },
+        {
+            name: 'Security Baseline',
+            description: 'Security configuration and vulnerability assessment',
+            category: TemplateCategory.Security,
+            parameters: {
+                profile: 'SECURITY-BASELINE.json',
+                timeout: 90,
+                iterations: 1,
+                logLevel: 'Debug',
+                logToFile: true,
+                debug: true
+            }
+        }
+    ];
 }
