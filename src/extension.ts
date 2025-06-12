@@ -696,7 +696,7 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                     message.templateData.parameters,
                     message.templateData.category,
                     message.templateData.tags
-                );
+                );                
                 console.log('Template saved successfully:', template);
                 // Send updated templates list after saving
                 const templates = templateManager.getAllTemplates();
@@ -708,7 +708,6 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                     command: 'templatesLoaded', 
                     templates 
                 });
-                vscode.window.showInformationMessage(`Template "${template.name}" saved successfully.`);
             } catch (error) {
                 console.error('Save template error:', error);
                 vscode.window.showErrorMessage(`Failed to save template: ${error instanceof Error ? error.message : error}`);
@@ -1113,19 +1112,21 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                             updateSubstepStatus(runItem.steps[1], 1, 'running', undefined, scheduledRunsProvider);
                             logger?.info('Step 2: Run Virtual Client > Execute Virtual Client Command');
                             
-                            await executeSSHCommandWithStreaming(
-                                resources.conn!,
-                                command,
-                                (data) => logger?.info('VC stdout: ' + data),
-                                (data) => logger?.warn('VC stderr: ' + data),
-                                logger
-                            ).then((result) => {
+                            let executionError: Error | null = null;
+                            
+                            try {
+                                const result = await executeSSHCommandWithStreaming(
+                                    resources.conn!,
+                                    command,
+                                    (data) => logger?.info('VC stdout: ' + data),
+                                    (data) => logger?.warn('VC stderr: ' + data),
+                                    logger
+                                );
+                                
                                 if (runCancelFlags[runItem.label]) {
                                     markSubstepAsError(runItem.steps[1], 1, 'Run cancelled.', logger, scheduledRunsProvider);
-                                    throw new Error('Run cancelled');
-                                }
-                                
-                                if (result.exitCode === 0) {
+                                    executionError = new Error('Run cancelled');
+                                } else if (result.exitCode === 0) {
                                     updateSubstepStatus(runItem.steps[1], 1, 'success', undefined, scheduledRunsProvider);
                                     logger?.info('Step 2: Run Virtual Client completed');
                                     // Mark parent as success only if both substeps succeeded
@@ -1133,16 +1134,18 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                                 } else {
                                     const errorMsg = `Execution failed (code ${result.exitCode}): ${result.stderr}`;
                                     markSubstepAsError(runItem.steps[1], 1, errorMsg, logger, scheduledRunsProvider);
-                                    throw new Error(errorMsg);
+                                    executionError = new Error(errorMsg);
                                 }
-                            }).catch((error) => {
+                            } catch (error) {
                                 if (runCancelFlags[runItem.label]) {
                                     markSubstepAsError(runItem.steps[1], 1, 'Run cancelled before execution.', logger, scheduledRunsProvider);
+                                    executionError = new Error('Run cancelled before execution');
                                 } else {
-                                    markSubstepAsError(runItem.steps[1], 1, `Failed to start Virtual Client: ${error.message}`, logger, scheduledRunsProvider);
+                                    markSubstepAsError(runItem.steps[1], 1, `Failed to start Virtual Client: ${(error as Error).message}`, logger, scheduledRunsProvider);
+                                    executionError = error as Error;
                                 }
-                                throw error;
-                            });                            // Step 2: Transfer Logs
+                            }
+                            // Step 2: Transfer Logs
                             const logsStep = new ScheduledRunStep('Transfer Logs', 'running', undefined, [
                                 new ScheduledRunStep('Archive Logs Folder', 'pending'),
                                 new ScheduledRunStep('Download Logs Archive', 'pending'),
@@ -1197,13 +1200,16 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                                         logsStep.substeps[2], 
                                         runItem.label
                                     );
-                                }
-
-                                updateStepStatus(logsStep, 'success', `Logs transferred to ${localLogsDir}`, scheduledRunsProvider);
+                                }                                updateStepStatus(logsStep, 'success', `Logs transferred to ${localLogsDir}`, scheduledRunsProvider);
                                 logger?.info(`Step 3: Transfer Logs completed - ${localLogsDir}`);
                             } catch (err) {
                                 markStepAsError(logsStep, err instanceof Error ? err.message : String(err), logger, scheduledRunsProvider);
                                 logger?.error('Step 3 (Transfer Logs) failed: ' + (err instanceof Error ? err.message : String(err)));
+                            }
+
+                            // After logs are transferred (or attempted), throw execution error if it occurred
+                            if (executionError) {
+                                throw executionError;
                             }
 
                         } catch (error) {
