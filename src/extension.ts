@@ -24,9 +24,6 @@ import {
     detectRemotePlatform 
 } from './utils';
 
-// Use extension-specific logs directory in globalStoragePath
-let LOGS_DIR: string;
-
 // Global providers
 export let scheduledRunsProvider: ScheduledRunsProvider;
 let treeViewProvider: VirtualClientTreeViewProvider | undefined;
@@ -97,9 +94,10 @@ interface RunStep {
  */
 export async function loadScheduledRuns(context: vscode.ExtensionContext): Promise<any[]> {
     try {
-        const files = (await fsPromises.readdir(LOGS_DIR)).filter(f => f.endsWith('.json'));
+        const logsDir = path.join(context.globalStorageUri.fsPath, 'logs');
+        const files = (await fsPromises.readdir(logsDir)).filter(f => f.endsWith('.json'));
         const runsData = await Promise.all(files.map(async f => {
-            const filePath = path.join(LOGS_DIR, f);
+            const filePath = path.join(logsDir, f);
             try {
                 const content = await fsPromises.readFile(filePath, 'utf-8');
                 return JSON.parse(content);
@@ -125,7 +123,8 @@ export async function saveScheduledRun(context: vscode.ExtensionContext, run: an
     const machineLabel = typeof run.machineLabel === 'string' ? sanitizeLabel(run.machineLabel) : 'unknown_label';
     const machineIp = typeof run.machineIp === 'string' ? run.machineIp : 'unknown_ip';
     const filename = `${timestamp}_${machineLabel}(${machineIp}).json`;
-    const file = path.join(LOGS_DIR, filename);
+    const logsDir = path.join(context.globalStorageUri.fsPath, 'logs');
+    const file = path.join(logsDir, filename);
     try {
         await fsPromises.writeFile(file, JSON.stringify(run, null, 2));
         console.log(`Scheduled run saved to ${file}`);
@@ -141,16 +140,17 @@ export async function saveScheduledRun(context: vscode.ExtensionContext, run: an
  */
 export async function clearLogsFolder(context: vscode.ExtensionContext): Promise<void> {
     try {
-        await fsPromises.access(LOGS_DIR);
-        const files = await fsPromises.readdir(LOGS_DIR);
+        const logsDir = path.join(context.globalStorageUri.fsPath, 'logs');
+        await fsPromises.access(logsDir);
+        const files = await fsPromises.readdir(logsDir);
         for (const f of files) {
             try {
-                await fsPromises.unlink(path.join(LOGS_DIR, f));
+                await fsPromises.unlink(path.join(logsDir, f));
             } catch (unlinkError) {
                 console.warn(`Failed to delete log file ${f}:`, unlinkError);
             }
         }
-        vscode.window.showInformationMessage('Scheduled run history files cleared from LOGS_DIR.');
+        vscode.window.showInformationMessage('Scheduled run history files cleared from logs directory.');
     } catch (error) {
         console.info('Log folder for scheduled runs either does not exist or could not be cleared:', error);
     }
@@ -170,18 +170,9 @@ let defaultRemoteTargetDir: string | undefined;
 export async function activate(context: vscode.ExtensionContext) {
     try {
         // Initialize providers
-        scheduledRunsProvider = new ScheduledRunsProvider();
+        scheduledRunsProvider = new ScheduledRunsProvider(context);
         machinesProvider = new MachinesProvider(context);
         
-        // Initialize LOGS_DIR and ensure it exists
-        LOGS_DIR = path.join(context.globalStoragePath, 'virtualclient-vscode-logs');
-        try {
-            await fsPromises.mkdir(LOGS_DIR, { recursive: true });
-            console.log(`LOGS_DIR ensured at: ${LOGS_DIR}`);
-        } catch (err) {
-            console.error(`Failed to create LOGS_DIR at ${LOGS_DIR}:`, err);
-            vscode.window.showErrorMessage(`Critical error: Failed to initialize logging directory. Extension might not function correctly.`);
-        }
         // Load any existing scheduled runs
         const existingRuns = await loadScheduledRuns(context);
         for (const run of existingRuns) {
@@ -272,10 +263,10 @@ export async function activate(context: vscode.ExtensionContext) {
                     // Use .relativePath if present
                     let logFilePath;
                     if (stepOrRun.relativePath) {
-                        const logsDir = path.join(context.globalStoragePath, 'logs', sanitizeLabel(runLabel));
+                        const logsDir = path.join(context.globalStorageUri.fsPath, 'logs', sanitizeLabel(runLabel));
                         logFilePath = path.join(logsDir, ...stepOrRun.relativePath.split('/'));
                     } else {
-                        const logsDir = path.join(context.globalStoragePath, 'logs', sanitizeLabel(runLabel));
+                        const logsDir = path.join(context.globalStorageUri.fsPath, 'logs', sanitizeLabel(runLabel));
                         logFilePath = path.join(logsDir, logFileName);
                     }
                     try {
@@ -368,11 +359,9 @@ export async function activate(context: vscode.ExtensionContext) {
                         }
                     }
                     let failedDeletes: string[] = [];
-                    // Delete all log files and subdirectories from both logs and virtualclient-vscode-logs directories
-                    const logsDir1 = path.join(context.globalStorageUri.fsPath, 'logs');
-                    await deleteDirectoryRecursive(logsDir1, failedDeletes);
-                    const logsDir2 = LOGS_DIR;
-                    await deleteDirectoryRecursive(logsDir2, failedDeletes);
+                    // Delete all log files and subdirectories from logs directory only
+                    const logsDir = path.join(context.globalStorageUri.fsPath, 'logs');
+                    await deleteDirectoryRecursive(logsDir, failedDeletes);
                     if (failedDeletes.length > 0) {
                         vscode.window.showWarningMessage('Some log files or directories could not be deleted: ' + failedDeletes.join(', '));
                     }
@@ -385,7 +374,7 @@ export async function activate(context: vscode.ExtensionContext) {
                     return;
                 }
                 const logsDir = path.join(context.globalStorageUri.fsPath, 'logs');
-                const safeLabel = runItem.label.replace(/[\\/:"*?<>|,]/g, '-');
+                const safeLabel = runItem.label.replace(/[\\/:"*?<>|,\.\s]/g, '-');
                 const logFilePath = path.join(logsDir, `${safeLabel}.log`);
                 try {
                     await fsPromises.access(logFilePath);
@@ -408,7 +397,7 @@ export async function activate(context: vscode.ExtensionContext) {
                     vscode.window.showErrorMessage('Could not determine run label for logs archive download.');
                     return;
                 }
-                const logsDir = path.join(context.globalStoragePath, 'logs', sanitizeLabel(runLabel));
+                const logsDir = path.join(context.globalStorageUri.fsPath, 'logs', sanitizeLabel(runLabel));
                 const zipPath = path.join(logsDir, 'logs.zip');
                 const tarPath = path.join(logsDir, 'logs.tar.gz');
                 let archivePath = '';
@@ -734,8 +723,10 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                     console.error(`Failed to create run-specific log directory ${logsDir}:`, error);
                     vscode.window.showErrorMessage('Failed to create log directory for the run.');
                 }
-                const safeLabel = runItem.label.replace(/[\\/:"*?<>|,]/g, '-');
-                const logFilePath = path.join(logsDir, `${safeLabel}.log`);
+                const logLabel = (scheduledRunsProvider as any).getRunLabel
+                    ? (scheduledRunsProvider as any).getRunLabel(runItem.timestamp, runItem.machineIp)
+                    : runItem.label;
+                const logFilePath = path.join(logsDir, `${logLabel}.log`);
                 logStream = fs.createWriteStream(logFilePath, { flags: 'a' });
                 outputChannel = vscode.window.createOutputChannel(`Virtual Client Logs - ${runItem.label}`);
                 outputChannel.show(true);
@@ -1540,7 +1531,8 @@ export async function handleStreamLogs(context: vscode.ExtensionContext, item: S
 
 async function handleShowLogFiles(context: vscode.ExtensionContext): Promise<void> {
     try {
-        const logFiles = (await fsPromises.readdir(LOGS_DIR)).filter(f => f.endsWith('.json'));
+        const logsDir = path.join(context.globalStorageUri.fsPath, 'logs');
+        const logFiles = (await fsPromises.readdir(logsDir)).filter(f => f.endsWith('.json'));
         if (logFiles.length === 0) {
             vscode.window.showInformationMessage('No log files found.');
             return;
@@ -1551,7 +1543,7 @@ async function handleShowLogFiles(context: vscode.ExtensionContext): Promise<voi
         });
 
         if (selectedFile) {
-            const logPath = path.join(LOGS_DIR, selectedFile);
+            const logPath = path.join(logsDir, selectedFile);
             const document = await vscode.workspace.openTextDocument(logPath);
             await vscode.window.showTextDocument(document);
         }

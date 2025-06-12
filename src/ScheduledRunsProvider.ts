@@ -61,8 +61,10 @@ export class ScheduledRunsProvider implements vscode.TreeDataProvider<ScheduledR
     readonly onDidChangeTreeData: vscode.Event<ScheduledRunItem | ScheduledRunStep | undefined | void> = this._onDidChangeTreeData.event;
     private runs: ScheduledRunItem[] = [];
     private logger: Logger;
+    private context: vscode.ExtensionContext;
 
-    constructor(logger?: Logger) {
+    constructor(context: vscode.ExtensionContext, logger?: Logger) {
+        this.context = context;
         this.logger = logger || new Logger(LogLevel.Info);
     }
 
@@ -124,6 +126,21 @@ export class ScheduledRunsProvider implements vscode.TreeDataProvider<ScheduledR
         return Promise.resolve([]);
     }
 
+    /**
+     * Helper to generate run label (timestamp + IP, with dots in IP, safe for filesystem)
+     */
+    public static getRunLabel(date: Date, ip: string): string {
+        const y = date.getFullYear();
+        const m = (date.getMonth() + 1).toString().padStart(2, '0');
+        const d = date.getDate().toString().padStart(2, '0');
+        const h = date.getHours().toString().padStart(2, '0');
+        const min = date.getMinutes().toString().padStart(2, '0');
+        const s = date.getSeconds().toString().padStart(2, '0');
+        // Only remove forbidden filename chars, keep dots in IP
+        const safeIp = ip.replace(/[^\d.]/g, '');
+        return `${y}${m}${d}_${h}${min}${s}_${safeIp}`;
+    }
+
     addRun(
         machineIp: string,
         packagePath: string,
@@ -159,7 +176,8 @@ export class ScheduledRunsProvider implements vscode.TreeDataProvider<ScheduledR
             new ScheduledRunStep('Execute Virtual Client', 'pending'),
             new ScheduledRunStep('Logs', 'pending')
         ];
-        const label = `${runTimestamp.toLocaleString()} ${machineIp}`;
+        // Use unified label logic
+        const label = ScheduledRunsProvider.getRunLabel(runTimestamp, machineIp);
         const runId = uuidv4();
         const run = new ScheduledRunItem(
             runId,
@@ -219,8 +237,43 @@ export class ScheduledRunsProvider implements vscode.TreeDataProvider<ScheduledR
     removeRun(runId: string): void {
         const index = this.runs.findIndex(run => run.runId === runId);
         if (index !== -1) {
+            const run = this.runs[index];
             this.runs.splice(index, 1);
             this._onDidChangeTreeData.fire();
+            // --- Remove log file and log folder using unified label logic ---
+            const path = require('path');
+            const fsPromises = require('fs').promises;
+            (async () => {
+                try {
+                    // Use the logsDir from the extension context
+                    const logsDir = path.join(this.context.globalStorageUri.fsPath, 'logs');
+                    const logLabel = ScheduledRunsProvider.getRunLabel(run.timestamp, run.machineIp);
+                    const logFilePath = path.join(logsDir, `${logLabel}.log`);
+                    try { await fsPromises.unlink(logFilePath); } catch (e) { this.logger.warn(`Could not delete log file: ${logFilePath}`); }
+                    // Remove log folder (recursively)
+                    const logFolderPath = path.join(logsDir, logLabel);
+                    async function deleteDirRecursive(dir: string) {
+                        try {
+                            const entries = await fsPromises.readdir(dir, { withFileTypes: true });
+                            for (const entry of entries) {
+                                const fullPath = path.join(dir, entry.name);
+                                if (entry.isDirectory()) {
+                                    await deleteDirRecursive(fullPath);
+                                    await fsPromises.rmdir(fullPath).catch(() => {});
+                                } else {
+                                    await fsPromises.unlink(fullPath).catch(() => {});
+                                }
+                            }
+                            await fsPromises.rmdir(dir).catch(() => {});
+                        } catch (err) {
+                            // Directory may not exist, ignore
+                        }
+                    }
+                    await deleteDirRecursive(logFolderPath);
+                } catch (err) {
+                    this.logger.warn('Failed to delete log file/folder for removed run: ' + err);
+                }
+            })();
         }
     }
 
