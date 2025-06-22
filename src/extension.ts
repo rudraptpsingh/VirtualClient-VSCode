@@ -756,9 +756,27 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
             });
             return;
         }
-        
-        if (message.command === 'showMessage') {
+          if (message.command === 'showMessage') {
             vscode.window.showInformationMessage(message.text);
+            return;
+        }
+        
+        if (message.command === 'cleanRemotePackages') {
+            try {
+                const machine = await machinesProvider.getMachineByIp(message.machineIp);
+                if (!machine) {
+                    throw new Error('Machine not found');
+                }
+                
+                await handleCleanRemotePackages(context, machine, resources.panel);
+            } catch (error) {
+                const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+                resources.panel?.webview.postMessage({
+                    command: 'cleanRemotePackagesComplete',
+                    success: false,
+                    error: errorMessage
+                });
+            }
             return;
         }
         
@@ -870,8 +888,7 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                 // Register the connection for cancellation
                 runCancelFlags[runItem.label] = false;
                 resources.conn = new ssh2.Client();
-                runConnections[runItem.label] = resources.conn;
-                resources.conn.on('ready', () => {
+                runConnections[runItem.label] = resources.conn;                resources.conn.on('ready', () => {
                     if (!resources.conn) {
                         return;
                     }
@@ -1219,11 +1236,39 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                                 logger?.info('Scheduled run finished.');
                                 logStream?.end();
                                 outputChannel?.appendLine('=== Run finished ===');
-                                outputChannel?.show(true);
+                                outputChannel?.show(true);                        }
+                    };
+
+                    // Check if remote package cleanup is requested
+                    const performCleanupBeforeExecution = async () => {
+                        if (message.cleanRemotePackages) {
+                            try {                                progress.report({ message: 'Cleaning remote packages...' });
+                                logger?.debug('Cleaning remote packages before deployment');
+                                  const machinePlatform = machine.platform;
+                                if (!machinePlatform) {
+                                    logger?.error('Machine platform not available for cleanup');
+                                    return;
+                                }
+                                
+                                await cleanRemotePackagesInternal(resources.conn!, machinePlatform, logger, credentials.username);
+                                
+                                logger?.debug('Remote packages cleaned successfully');
+                                progress.report({ message: 'Remote packages cleaned, starting deployment...' });
+                            } catch (cleanError) {
+                                const errorMsg = `Failed to clean remote packages: ${cleanError instanceof Error ? cleanError.message : String(cleanError)}`;
+                                logger?.error(errorMsg);
+                                vscode.window.showWarningMessage(errorMsg + '. Continuing with deployment...');
+                            }
                         }
                     };
 
-                    executeSteps();
+                    // Perform cleanup if requested, then execute the deployment steps
+                    performCleanupBeforeExecution().then(() => {
+                        executeSteps();
+                    }).catch((error) => {
+                        logger?.error(`Failed during cleanup phase: ${error instanceof Error ? error.message : String(error)}`);
+                        executeSteps(); // Continue with deployment even if cleanup fails
+                    });
                 });
             });
 
@@ -1453,10 +1498,199 @@ async function handleRerun(context: vscode.ExtensionContext, item: ScheduledRunI
             // Refresh the tree view
             if (treeViewProvider) {
                 treeViewProvider.refresh();
-            }
-
-            // Close the webview
+            }            // Close the webview
             panel.dispose();
         }
+    });
+}
+
+/**
+ * Handles cleaning remote packages from VirtualClientScheduler directory
+ */
+async function handleCleanRemotePackages(
+    context: vscode.ExtensionContext, 
+    machine: any, 
+    panel?: vscode.WebviewPanel
+): Promise<void> {
+    return new Promise((resolve, reject) => {
+        const resources = {
+            conn: null as ssh2.Client | null,
+            sftp: null as any
+        };
+
+        const cleanup = () => {
+            if (resources.sftp) {
+                try { resources.sftp.end(); } catch {}
+            }
+            if (resources.conn) {
+                try { resources.conn.end(); } catch {}
+            }
+        };
+
+        const handleError = (error: any) => {
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            
+            panel?.webview.postMessage({
+                command: 'cleanRemotePackagesComplete',
+                success: false,
+                error: errorMessage
+            });
+
+            vscode.window.showErrorMessage(`Failed to clean remote packages: ${errorMessage}`);
+            cleanup();
+            reject(error);
+        };
+
+        // Get machine credentials
+        machinesProvider.getMachineCredentials(machine.ip).then(credentials => {
+            if (!credentials) {
+                handleError(new Error('Machine credentials not found'));
+                return;
+            }
+
+            // Detect platform
+            const platform = machine.platform;
+            if (!platform) {
+                handleError(new Error('Machine platform not detected'));
+                return;
+            }
+
+            // Create SSH connection
+            resources.conn = new ssh2.Client();
+
+            resources.conn.on('ready', () => {
+                if (!resources.conn) {
+                    return;
+                }
+
+                // Get remote target directory
+                const remoteTargetDir = getDefaultRemoteTargetDir(platform, credentials.username);
+                
+                // Build cleanup commands based on platform
+                const isWindows = isWindowsPlatform(platform);
+                let cleanupCommand: string;
+
+                if (isWindows) {
+                    // Windows PowerShell command to remove all files and folders in VirtualClientScheduler
+                    cleanupCommand = `powershell -Command "if (Test-Path '${remoteTargetDir}') { Get-ChildItem -Path '${remoteTargetDir}' -Recurse | Remove-Item -Force -Recurse; Write-Host 'Cleaned VirtualClientScheduler directory' } else { Write-Host 'VirtualClientScheduler directory not found' }"`;
+                } else {
+                    // Linux command to remove all files and folders in VirtualClientScheduler
+                    cleanupCommand = `if [ -d "${remoteTargetDir}" ]; then rm -rf "${remoteTargetDir}"/*; echo "Cleaned VirtualClientScheduler directory"; else echo "VirtualClientScheduler directory not found"; fi`;
+                }
+
+                // Execute cleanup command
+                resources.conn.exec(cleanupCommand, (err: Error | undefined, stream: any) => {
+                    if (err) {
+                        handleError(err);
+                        return;
+                    }
+
+                    let stdout = '';
+                    let stderr = '';
+
+                    stream.on('data', (data: Buffer) => {
+                        stdout += data.toString();
+                    });
+
+                    stream.stderr.on('data', (data: Buffer) => {
+                        stderr += data.toString();
+                    });
+
+                    stream.on('close', (code: number) => {
+                        if (code !== 0) {
+                            handleError(new Error(`Cleanup command failed with exit code ${code}: ${stderr}`));
+                            return;
+                        }
+
+                        // Notify success
+                        panel?.webview.postMessage({
+                            command: 'cleanRemotePackagesComplete',
+                            success: true
+                        });
+
+                        vscode.window.showInformationMessage(`Successfully cleaned remote packages from ${machine.label} (${machine.ip})`);
+                        
+                        cleanup();
+                        resolve();
+                    });
+                });
+            });
+
+            resources.conn.on('error', (err: Error) => {
+                handleError(err);
+            });
+
+            // Connect to the machine
+            resources.conn.connect({
+                host: machine.ip,
+                username: credentials.username,
+                password: credentials.password,
+                algorithms: {
+                    cipher: ['aes128-ctr']
+                }
+            });
+
+        }).catch(handleError);
+    });
+}
+
+/**
+ * Internal helper function to clean remote packages using an existing SSH connection
+ */
+async function cleanRemotePackagesInternal(
+    conn: ssh2.Client, 
+    platform: string, 
+    logger?: import('./types').Logger,
+    username?: string
+): Promise<void> {
+    return new Promise((resolve, reject) => {
+        // Get remote target directory
+        const remoteTargetDir = getDefaultRemoteTargetDir(platform, username || 'vclientuser');
+        
+        // Build cleanup commands based on platform
+        const isWindows = isWindowsPlatform(platform);
+        let cleanupCommand: string;
+
+        if (isWindows) {
+            // Windows PowerShell command to remove all files and folders in VirtualClientScheduler
+            cleanupCommand = `powershell -Command "if (Test-Path '${remoteTargetDir}') { Get-ChildItem -Path '${remoteTargetDir}' -Recurse | Remove-Item -Force -Recurse; Write-Host 'Cleaned VirtualClientScheduler directory' } else { Write-Host 'VirtualClientScheduler directory not found' }"`;
+        } else {
+            // Linux command to remove all files and folders in VirtualClientScheduler
+            cleanupCommand = `if [ -d "${remoteTargetDir}" ]; then rm -rf "${remoteTargetDir}"/*; echo "Cleaned VirtualClientScheduler directory"; else echo "VirtualClientScheduler directory not found"; fi`;
+        }
+
+        logger?.debug(`Executing cleanup command: ${cleanupCommand}`);
+
+        // Execute cleanup command
+        conn.exec(cleanupCommand, (err: Error | undefined, stream: any) => {
+            if (err) {
+                logger?.error(`Failed to execute cleanup command: ${err.message}`);
+                reject(err);
+                return;
+            }
+
+            let stdout = '';
+            let stderr = '';
+
+            stream.on('data', (data: Buffer) => {
+                stdout += data.toString();
+            });
+
+            stream.stderr.on('data', (data: Buffer) => {
+                stderr += data.toString();
+            });
+
+            stream.on('close', (code: number) => {
+                if (code !== 0) {
+                    const errorMsg = `Cleanup command failed with exit code ${code}: ${stderr}`;
+                    logger?.error(errorMsg);
+                    reject(new Error(errorMsg));
+                    return;
+                }
+
+                logger?.debug(`Cleanup command completed successfully: ${stdout.trim()}`);
+                resolve();
+            });
+        });
     });
 }

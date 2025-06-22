@@ -446,13 +446,11 @@ window.addEventListener('message', function(event) {
             vscode.postMessage({ command: 'showMessage', text: \`Template "\${message.template.name}" saved successfully\` });
             refreshTemplateList();
             break;
-            
-        case 'templateDeleted':
+              case 'templateDeleted':
             vscode.postMessage({ command: 'showMessage', text: 'Template deleted successfully' });
             refreshTemplateList();
             break;
-            
-        case 'enableSubmit':
+              case 'enableSubmit':
             submitBtn.disabled = false;
             submitBtn.textContent = 'Run Virtual Client';
             break;
@@ -747,6 +745,15 @@ ${machineOptions}
 <div class="error-message" id="packagePathError">Please provide a valid package path.</div>
 </div>
 <div class="form-group">
+<div style="display: flex; align-items: center; margin-top: 8px;">
+<input type="checkbox" id="cleanRemotePackages" name="cleanRemotePackages" ${lastParams?.cleanRemotePackages ? 'checked' : ''}>
+<label for="cleanRemotePackages" style="margin-left: 8px; font-weight: normal;">Clean remote packages before deployment</label>
+</div>
+<span class="desc" style="margin-left: 24px; font-size: 12px; color: var(--vscode-descriptionForeground);">
+This will delete all existing Virtual Client packages and extracted folders from the VirtualClientScheduler directory on the remote machine before uploading the new package.
+</span>
+</div>
+<div class="form-group">
 <label for="profile">Profile (--profile):</label>
 <span class="desc">The workload profile to execute. Example: 'PERF-CPU-OPENSSL.json'.</span>
 <input type="text" id="profile" name="profile" required aria-required="true"
@@ -999,13 +1006,11 @@ addParamBtn.onclick = function() {
     const row = document.createElement('div');
     row.className = 'param-row';
     row.innerHTML = '<input type="text" class="param-key" placeholder="key" value="' + (p.key || '') + '" aria-label="Parameter key">' +
-      '<input type="text" class="param-value" placeholder="value" value="' + (p.value || '') + '" aria-label="Parameter value">' +
-      '<button type="button" class="remove-param" title="Remove">&times;</button>';
+      '<input type="text" class="param-value" placeholder="value" value="' + (p.value || '') + '" aria-label="Parameter value">' +      '<button type="button" class="remove-param" title="Remove">&times;</button>';
     row.querySelector('.remove-param').onclick = function() {
       params.splice(idx, 1);
       renderParamRows();
-    };
-    paramRows.appendChild(row);
+    };    paramRows.appendChild(row);
   });
 };
 
@@ -1049,8 +1054,7 @@ function getFormParams() {
   const data = {};
   new FormData(form).forEach((value, key) => {
     data[key] = value;
-  });
-  ['logToFile', 'debug', 'failFast'].forEach(cb => {
+  });  ['logToFile', 'debug', 'failFast', 'cleanRemotePackages'].forEach(cb => {
     data[cb] = form[cb]?.checked || false;
   });
   const cleanTargets = Array.from(document.querySelectorAll('input[name="clean_targets"]:checked')).map(cb => cb.value);

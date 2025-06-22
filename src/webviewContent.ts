@@ -407,8 +407,7 @@ addParamBtn.onclick = function() {
       params.splice(idx, 1);
       renderParamRows();
     };
-    paramRows.appendChild(row);
-  });
+    paramRows.appendChild(row);  });
 };
 // Initial render if any
 if (paramRows.children.length === 0 && ${paramPairs.length} > 0) {
