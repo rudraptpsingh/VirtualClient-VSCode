@@ -15,13 +15,48 @@
 
 ---
 
-## Installation
+## Installation & Setup
+
+### Method 1: VS Code Extension (Recommended)
 - **From Marketplace:**
-  1. Search for `Virtual Client` in the Extensions view (`Ctrl+Shift+X`).
-  2. Click Install.
+  1. Search for `Virtual Client` in Extensions view (`Ctrl+Shift+X`)
+  2. Click Install
 - **From VSIX:**
-  1. Download the latest `.vsix` from [Releases](https://github.com/rudraptpsingh/VirtualClient-VSCode/releases).
-  2. In VS Code, run `Extensions: Install from VSIX...` and select the file.
+  1. Download the latest `.vsix` from [Releases](https://github.com/rudraptpsingh/VirtualClient-VSCode/releases)
+  2. In VS Code, run `Extensions: Install from VSIX...` and select the file
+
+### Method 2: Docker Container (Web-based VS Code)
+
+Run VS Code with the Virtual Client extension in your browser:
+
+```bash
+# Clone repository
+git clone https://github.com/rudraptpsingh/VirtualClient-VSCode.git
+cd VirtualClient-VSCode
+
+# Build and run (Windows)
+run.bat build
+run.bat run
+
+# Build and run (Linux/Mac)
+docker build -t virtual-client .
+docker run -d -p 8080:8080 --name virtual-client virtual-client
+```
+
+**Access**: http://localhost:8080 (Password: `virtualclient123`)
+
+**Docker Commands:**
+- `run.bat build` - Build the container
+- `run.bat run` - Start the container
+- `run.bat stop` - Stop the container
+- `run.bat logs` - View container logs
+- `run.bat shell` - Access container shell
+
+**Container Benefits:**
+- Pre-configured VS Code environment with extension installed
+- No local setup required - works on any system with Docker
+- Web-based access from any browser
+- Isolated testing environment
 
 ---
 
@@ -138,6 +173,33 @@ The extension comes with several predefined templates for common scenarios:
 - Enhanced webview with template-specific UI components
 - File-based template storage in extension global directory
 - Template validation and data integrity checks
+
+---
+
+## Sharing & Distribution
+
+### Option 1: Extension File (.vsix)
+```bash
+# Build extension package
+npm run compile
+vsce package
+
+# Share the .vsix file for local VS Code installation
+```
+
+### Option 2: Docker Container
+```bash
+# Build and save container
+docker build -t virtual-client .
+docker save virtual-client | gzip > virtual-client.tar.gz
+
+# Recipients: Load and run
+gunzip -c virtual-client.tar.gz | docker load
+docker run -d -p 8080:8080 --name virtual-client virtual-client
+```
+
+### Option 3: Source Code
+Share the essential files: `Dockerfile`, `package.json`, `tsconfig.json`, `src/`, `resources/`, and `README.md`
 
 ---
 

@@ -1,0 +1,29 @@
+# Ignore build artifacts and dependencies
+node_modules/
+out/
+*.log
+
+# Ignore OS and IDE files
+.DS_Store
+Thumbs.db
+.vscode/settings.json
+
+# Ignore git
+.git/
+.gitignore
+
+# Ignore demo files and large assets
+demo/
+*.mp4
+*.vsix
+*.tar
+*.tar.gz
+
+# Ignore CI/CD files
+.github/
+
+# Ignore test files
+test/
+
+# .dockerignore itself not needed in container
+.dockerignore

@@ -1,10 +1,8 @@
 {  "name": "virtual-client",
   "publisher": "rudraptpsingh",
   "displayName": "Virtual Client",
-  "description": "Runs Virtual Client tool on a remote machine with template support",
-  "version": "0.1.0",
-  "engines": {
-    "vscode": "^1.99.0"
+  "description": "Runs Virtual Client tool on a remote machine with template support",  "version": "0.1.0",  "engines": {
+    "vscode": "^1.74.0"
   },
   "categories": [
     "Other"
@@ -184,15 +182,17 @@
         }
       }
     }
-  },
-  "scripts": {
+  },  "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src",
     "test": "node ./out/test/runTest.js",
-    "clean": "rmdir /s/q out"
+    "clean": "rmdir /s/q out",
+    "docker:build": "docker build -t virtual-client .",
+    "docker:run": "docker run -d -p 8080:8080 --name virtual-client virtual-client",
+    "docker:stop": "docker stop virtual-client && docker rm virtual-client"
   },
   "devDependencies": {
     "@types/glob": "^7.2.0",
@@ -200,7 +200,7 @@
     "@types/node": "^20.0.0",
     "@types/unzipper": "^0.10.11",
     "@types/uuid": "^10.0.0",
-    "@types/vscode": "^1.99.0",
+    "@types/vscode": "^1.74.0",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
     "@vscode/test-electron": "^2.5.2",

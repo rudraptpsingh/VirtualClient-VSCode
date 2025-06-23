@@ -520,19 +520,13 @@ export async function activate(context: vscode.ExtensionContext) {    try {     
 
         // Disable telemetry
         const telemetryConfig = vscode.workspace.getConfiguration('telemetry');
-        telemetryConfig.update('enableTelemetry', false, vscode.ConfigurationTarget.Global);
-
-        // Load default remote target dir from globalState or set platform defaults
+        telemetryConfig.update('enableTelemetry', false, vscode.ConfigurationTarget.Global);        // Load default remote target dir from globalState (if user has set a custom default)
         const userDefault = context.globalState.get<string>('defaultRemoteTargetDir');
         if (userDefault) {
             defaultRemoteTargetDir = userDefault;
         } else {
-            // Set a sensible default for the current platform
-            if (process.platform === 'win32') {
-                defaultRemoteTargetDir = WINDOWS_DEFAULT_REMOTE_DIR;
-            } else {
-                defaultRemoteTargetDir = `${LINUX_DEFAULT_REMOTE_DIR}/${os.userInfo().username}/VirtualClientScheduler`;
-            }
+            // Don't set a global default - always determine dynamically based on target machine platform
+            defaultRemoteTargetDir = undefined;
         }
 
         console.log('Extension "virtual-client" is now active!');
@@ -816,37 +810,49 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                 }
                 if (!message.machineIp || typeof message.machineIp !== 'string' || !message.machineIp.trim()) {
                     vscode.window.showErrorMessage('Machine IP is required.');
-                    throw new Error('Machine IP is required.');
-                }
+                    throw new Error('Machine IP is required.');                }
                 const platform = machine.platform;
+                console.log(`[DEBUG] Platform for machine ${machine.ip}: "${platform}"`);
                 if (!platform || platform.trim() === '') {
                     vscode.window.showErrorMessage('Platform is not set for the selected machine.');
                     throw new Error('Platform is not set for the selected machine.');
                 }
                 const isWindows = isWindowsPlatform(platform);
+                console.log(`[DEBUG] isWindows: ${isWindows} for platform: "${platform}"`);
                 const credentials = await machinesProvider.getMachineCredentials(message.machineIp);
                 if (!credentials) {
                     throw new Error('Machine credentials not found');
                 }
-                // Set the remote target directory automatically
+                console.log(`[DEBUG] Remote username: "${credentials.username}"`);                // Set the remote target directory based on the target machine platform
                 let remoteTargetDir: string;
                 if (defaultRemoteTargetDir) {
+                    // User has set a custom default - validate it matches the target platform
                     if (isWindows) {
-                        remoteTargetDir = defaultRemoteTargetDir;
+                        // For Windows machines, use user default if it looks like a Windows path, otherwise use Windows default
+                        if (defaultRemoteTargetDir.includes(':') || defaultRemoteTargetDir.includes('\\')) {
+                            remoteTargetDir = defaultRemoteTargetDir;
+                        } else {
+                            remoteTargetDir = WINDOWS_DEFAULT_REMOTE_DIR;
+                        }
                     } else {
-                        // If user set a default, but we're on Linux, ensure it's a POSIX path
-                        // If the defaultRemoteTargetDir is a Windows path, convert to POSIX
-                        if (defaultRemoteTargetDir.startsWith('C:') || defaultRemoteTargetDir.startsWith('\\')) {
+                        // For Linux machines, use user default if it looks like a POSIX path, otherwise generate Linux default
+                        if (defaultRemoteTargetDir.startsWith('/') && !defaultRemoteTargetDir.includes(':')) {
+                            remoteTargetDir = defaultRemoteTargetDir;
+                        } else {
                             const remoteUser = credentials.username || 'vclientuser';
                             remoteTargetDir = getDefaultRemoteTargetDir(platform, remoteUser);
-                        } else {
-                            remoteTargetDir = defaultRemoteTargetDir;
                         }
                     }
                 } else {
-                    const remoteUser = credentials.username || 'vclientuser';
-                    remoteTargetDir = getDefaultRemoteTargetDir(platform, remoteUser);
-                }                // Update global state with last parameters (do not include remoteTargetDir)
+                    // No user default - always generate based on target machine platform
+                    if (isWindows) {
+                        remoteTargetDir = WINDOWS_DEFAULT_REMOTE_DIR;
+                    } else {
+                        const remoteUser = credentials.username || 'vclientuser';
+                        remoteTargetDir = getDefaultRemoteTargetDir(platform, remoteUser);
+                    }
+                }
+                console.log(`[DEBUG] Final remoteTargetDir: "${remoteTargetDir}"`);                // Update global state with last parameters (do not include remoteTargetDir)
                 await saveLastRunParameters(context, message);
                 // Create a new run item
                 const runItem = scheduledRunsProvider.addRun(
@@ -1111,21 +1117,37 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
                                 const errorMsg = `VirtualClient tool not found at path: ${toolPath}`;
                                 markSubstepAsError(runItem.steps[1], 0, errorMsg, logger, scheduledRunsProvider);
                                 throw new Error(errorMsg);
-                            }
-                            // --- END TOOL PATH VALIDATION ---                            // Merge additionalArgs with form fields, giving precedence to additionalArgs
-                            const vcCmd = buildVirtualClientCommand(message, message.additionalArgs, shQuote);
+                            }                            // --- END TOOL PATH VALIDATION ---
                             
-                            // Run the command in the tool directory, capture PID
+                            // Create platform-specific quote function for the target machine
+                            const platformQuote = (str: string): string => {
+                                if (isWindows) {
+                                    // Windows-style quoting with double quotes
+                                    return `"${str.replace(/"/g, '""')}"`;
+                                } else {
+                                    // Linux-style quoting with single quotes
+                                    return `'${str.replace(/'/g, "'\\''")}'`;
+                                }
+                            };
+                              // Merge additionalArgs with form fields, giving precedence to additionalArgs
+                            const vcCmd = buildVirtualClientCommand(message, message.additionalArgs, platformQuote);
+                            
+                            // Debug the platform and isWindows values before command construction
+                            logger?.debug(`[DEBUG] Platform value: "${platform}"`);
+                            logger?.debug(`[DEBUG] isWindows value: ${isWindows}`);
+                            logger?.debug(`[DEBUG] Condition (platform && isWindows): ${Boolean(platform && isWindows)}`);
+                              // Run the command in the tool directory, capture PID
                             let command = '';
                             if (platform && isWindows) {
                                 command = `"${toolPath}"${vcCmd}`;
-                                logger?.debug(`[DEBUG] Command to execute: ${command}`);
-                            } else {
+                                logger?.debug(`[DEBUG] Using Windows command path`);
+                                logger?.debug(`[DEBUG] Command to execute: ${command}`);                            } else {
                                 // For Linux: run as sudo with password from credentials
-                                command = `echo '${credentials.password.replace(/'/g, "'\\''")}' | sudo -S ${shQuote(toolPath)}${vcCmd}`;
+                                command = `echo '${credentials.password.replace(/'/g, "'\\''")}' | sudo -S ${platformQuote(toolPath)}${vcCmd}`;
+                                logger?.debug(`[DEBUG] Using Linux command path`);
                                 // Log only the command arguments, not the password
-                                logger?.debug(`[DEBUG] Command to execute: sudo -S ${shQuote(toolPath)}${vcCmd}`);
-                            }                            // Run the command in the remote target directory, capture PID
+                                logger?.debug(`[DEBUG] Command to execute: sudo -S ${platformQuote(toolPath)}${vcCmd}`);
+                            }// Run the command in the remote target directory, capture PID
                             updateSubstepStatus(runItem.steps[1], 1, 'running', undefined, scheduledRunsProvider);
                             logger?.info('Step 2: Run Virtual Client > Execute Virtual Client Command');
                             

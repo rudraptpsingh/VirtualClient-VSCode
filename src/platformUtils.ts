@@ -24,9 +24,14 @@ export function getRemotePath(platform: string, ...segments: string[]): string {
  * Get default remote target directory for the platform
  */
 export function getDefaultRemoteTargetDir(platform: string, username: string): string {
-    return isWindowsPlatform(platform)
-        ? WINDOWS_DEFAULT_REMOTE_DIR
-        : `${LINUX_DEFAULT_REMOTE_DIR}/${username}/VirtualClientScheduler`;
+    if (isWindowsPlatform(platform)) {
+        return WINDOWS_DEFAULT_REMOTE_DIR;
+    } else {
+        // For Linux systems, use the actual username provided
+        // Don't use hardcoded usernames like 'coder'
+        const actualUsername = username && username !== 'coder' ? username : 'vclientuser';
+        return `${LINUX_DEFAULT_REMOTE_DIR}/${actualUsername}/VirtualClientScheduler`;
+    }
 }
 
 /**
