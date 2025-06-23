@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as ssh2 from 'ssh2';
 import { Logger, LogLevel } from './types';
+import { isWindowsPlatform, getToolExecutableName, getDefaultRemoteTargetDir, getRemotePath } from './platformUtils';
 
 interface SharedMachine { label: string; ip: string; platform?: string; }
 type SharedMachinesType = SharedMachine[];
@@ -222,6 +223,11 @@ export class MachinesProvider implements vscode.TreeDataProvider<MachineItem> {
 
 export class MachineItem extends vscode.TreeItem {
     connectionStatus: 'unknown' | 'connected' | 'unreachable' | 'fetching' = 'unknown';
+    
+    // Cached platform properties
+    private _isWindows?: boolean;
+    private _isLinux?: boolean;
+    
     constructor(
         public readonly label: string,
         public readonly ip: string,
@@ -237,5 +243,82 @@ export class MachineItem extends vscode.TreeItem {
         if (username) { tooltipParts.push(`Username: ${username}`); }
         if (platform) {tooltipParts.push(`Platform: ${platform}`); }
         this.tooltip = tooltipParts.length > 0 ? tooltipParts.join(' | ') : undefined;
+    }
+
+    /**
+     * Check if this machine is running Windows
+     */
+    get isWindows(): boolean {
+        if (this._isWindows === undefined) {
+            this._isWindows = isWindowsPlatform(this.platform);
+        }
+        return this._isWindows;
+    }
+
+    /**
+     * Check if this machine is running Linux
+     */
+    get isLinux(): boolean {
+        if (this._isLinux === undefined) {
+            this._isLinux = Boolean(this.platform) && String(this.platform).toLowerCase().startsWith('linux');
+        }
+        return this._isLinux;
+    }
+
+    /**
+     * Get the platform-specific executable name for Virtual Client
+     */
+    getToolExecutableName(baseName: string = 'VirtualClient'): string {
+        return getToolExecutableName(this.platform || '', baseName);
+    }
+
+    /**
+     * Get the default remote target directory for this machine's platform
+     */
+    getDefaultRemoteTargetDir(): string {
+        if (!this.platform) {
+            throw new Error('Platform is not set for this machine');
+        }
+        return getDefaultRemoteTargetDir(this.platform, this.username || 'vclientuser');
+    }
+
+    /**
+     * Get a platform-appropriate remote path by joining segments
+     */
+    getRemotePath(...segments: string[]): string {
+        if (!this.platform) {
+            throw new Error('Platform is not set for this machine');
+        }
+        return getRemotePath(this.platform, ...segments);
+    }
+
+    /**
+     * Get platform-specific quote function for shell commands
+     */
+    getPlatformQuote(): (str: string) => string {
+        if (this.isWindows) {
+            // Windows-style quoting with double quotes
+            return (str: string) => `"${str.replace(/"/g, '""')}"`;
+        } else {
+            // Linux-style quoting with single quotes
+            return (str: string) => `'${str.replace(/'/g, "'\\''")}'`;
+        }
+    }
+
+    /**
+     * Check if the platform is set and valid
+     */
+    get hasPlatform(): boolean {
+        return Boolean(this.platform && this.platform.trim());
+    }
+
+    /**
+     * Get the platform string, throwing an error if not set
+     */
+    requirePlatform(): string {
+        if (!this.hasPlatform) {
+            throw new Error(`Platform is not set for machine '${this.label}' (${this.ip})`);
+        }
+        return this.platform!;
     }
 }

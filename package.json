@@ -169,8 +169,7 @@
           "icon": "$(refresh)"
         }
       ]
-    },
-    "configuration": {
+    },    "configuration": {
       "type": "object",
       "title": "VSCode-VC Configuration",
       "properties": {
@@ -179,6 +178,10 @@
           "enum": ["debug", "info", "warn", "error"],
           "default": "debug",
           "description": "Log level for the VSCode-VC extension's internal logger. Set to 'debug' for verbose logs."
+        },        "virtualClient.refreshMachineStatusOnLoad": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically refresh machine connection status when the extension loads. This may slow down extension startup if you have many machines or slow network connections."
         }
       }
     }

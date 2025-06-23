@@ -386,18 +386,13 @@ function setupModalHandlers() {
 document.getElementById('saveTemplateForm').addEventListener('submit', function(e) {
     e.preventDefault();
     
-    console.log('Save template form submitted');
-    
     const formData = new FormData(this);
     const templateData = {
         name: formData.get('templateName'),
         description: formData.get('templateDescription'),
         category: formData.get('templateCategory'),
-        tags: formData.get('templateTags') ? formData.get('templateTags').split(',').map(t => t.trim()) : [],
-        parameters: getFormParams() // Get current form parameters
+        tags: formData.get('templateTags') ? formData.get('templateTags').split(',').map(t => t.trim()) : [],        parameters: getFormParams() // Get current form parameters
     };
-    
-    console.log('Template data to save:', templateData);
     
     vscode.postMessage({ command: 'saveTemplate', templateData });
     closeSaveTemplateModal();
@@ -417,12 +412,8 @@ function importTemplates() {
 }
 
 function deleteTemplate(templateId) {
-    console.log('deleteTemplate called with ID:', templateId);
     if (confirm('Are you sure you want to delete this template?')) {
-        console.log('User confirmed deletion, sending message to extension');
         vscode.postMessage({ command: 'deleteTemplate', templateId });
-    } else {
-        console.log('User cancelled deletion');
     }
 }
 

@@ -75,6 +75,6 @@ export function logUploadProgress(
             lastLoggedPercent.value = percent;
         }
         const progressBar = renderProgressBar(percent);
-        logger?.info?.(`[UPLOAD] ${progressBar} (${transferredMB.toFixed(2)} MB / ${totalMB.toFixed(2)} MB)`);
+        logger?.info?.(`${progressBar} (${transferredMB.toFixed(2)} MB / ${totalMB.toFixed(2)} MB)`);
     }
 }

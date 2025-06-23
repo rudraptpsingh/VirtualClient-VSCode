@@ -126,17 +126,13 @@ export class TemplateManager {
      * Save a new template
      */    async saveTemplate(
         name: string,
-        description: string,
-        parameters: TemplateParameters,
+        description: string,        parameters: TemplateParameters,
         category: TemplateCategory,
         tags?: string[]
     ): Promise<RunTemplate> {
         try {
-            console.log('TemplateManager.saveTemplate called with:', { name, description, category, tags, parameters });
-            
             // Generate unique ID
             const id = this.generateTemplateId(name);
-            console.log('Generated template ID:', id);
             
             // Create template object
             const template: RunTemplate = {
@@ -150,25 +146,19 @@ export class TemplateManager {
                     usageCount: 0,
                     version: '1.0.0',
                     author: 'user',
-                    tags: tags || []
-                }
+                    tags: tags || []                }
             };
-
-            console.log('Created template object:', template);
 
             // Save to memory
             this.templates.set(id, template);
-            console.log('Template saved to memory. Total templates:', this.templates.size);
 
             // Save to disk
             await this.saveTemplateToDisk(template);
-            console.log('Template saved to disk successfully');
 
             this.logger?.info?.(`Template '${name}' saved successfully`);
             return template;
         } catch (error) {
             const message = `Failed to save template: ${error instanceof Error ? error.message : error}`;
-            console.error('TemplateManager.saveTemplate error:', error);
             this.logger?.error?.(message);
             throw new Error(message);
         }

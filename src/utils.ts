@@ -42,7 +42,7 @@ export async function sftpMkdirRecursive(sftp: any, remotePath: string, logger?:
         await new Promise((resolve, reject) => {
             sftp.realpath('.', (err: any, cwd: string) => {
                 if (!err && logger) {
-                    logger.info?.(`[INFO] SFTP initial working directory: ${cwd}`);
+                    logger.info?.(`SFTP initial working directory: ${cwd}`);
                     sftpRoot = cwd;
                 }
                 resolve(true);
@@ -76,16 +76,16 @@ export async function sftpMkdirRecursive(sftp: any, remotePath: string, logger?:
                     const parent = path.posix.dirname(current);
                     sftp.stat(parent, (parentErr: any) => {
                         if (parentErr) {
-                            logger?.error?.(`[ERROR] Parent directory does not exist: ${parent}`);
+                            logger?.error?.(`Parent directory does not exist: ${parent}`);
                             return reject(new Error(`Parent directory does not exist: ${parent}`));
                         }
                         sftp.mkdir(current, (err2: any) => {
                             if (err2) {
                                 if (err2.code === 4 || err2.code === 11) {
-                                    logger?.debug?.(`[DEBUG] mkdir ${current}: already exists or generic failure, continuing`);
+                                    logger?.debug?.(`mkdir ${current}: already exists or generic failure, continuing`);
                                     return resolve(true);
                                 }
-                                logger?.debug?.(`[DEBUG] Failed to mkdir ${current}: ${err2.message}`);
+                                logger?.debug?.(`Failed to mkdir ${current}: ${err2.message}`);
                                 return reject(err2);
                             }
                             resolve(true);
@@ -94,7 +94,7 @@ export async function sftpMkdirRecursive(sftp: any, remotePath: string, logger?:
                 });
             });
         } catch (e) {
-            logger?.debug?.(`[DEBUG] Error in sftpMkdirRecursive at ${current}: ${e instanceof Error ? e.message : e}`);
+            logger?.debug?.(`Error in sftpMkdirRecursive at ${current}: ${e instanceof Error ? e.message : e}`);
             throw e;
         }
     }

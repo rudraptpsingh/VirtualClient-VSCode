@@ -81,27 +81,23 @@ export async function deletePathRecursively(
         const entries = await fsPromises.readdir(targetPath, { withFileTypes: true });
         
         for (const entry of entries) {
-            const curPath = path.join(targetPath, entry.name);
-            if (entry.isDirectory()) {
+            const curPath = path.join(targetPath, entry.name);            if (entry.isDirectory()) {
                 await deletePathRecursively(curPath, failedDeletes);
                 try {
                     await fsPromises.rmdir(curPath);
                 } catch (e) {
-                    console.warn(`Failed to rmdir ${curPath}:`, e);
                     failedDeletes.push(curPath);
                 }
             } else {
                 try {
                     await fsPromises.unlink(curPath);
                 } catch (e) {
-                    console.warn(`Failed to unlink ${curPath}:`, e);
                     failedDeletes.push(curPath);
                 }
             }
         }
     } catch (err) {
         if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-            console.warn(`Error accessing ${targetPath} for deletion:`, err);
             failedDeletes.push(targetPath);
         }
     }

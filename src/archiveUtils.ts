@@ -77,7 +77,7 @@ export async function executeArchiveCommand(
     return new Promise((resolve, reject) => {
         conn.exec(archiveCommand, (err: Error | undefined, stream: any) => {
             if (err) {
-                logger?.debug(`[DEBUG] Error starting archive command: ${err.message}`);
+                logger?.debug(`Error starting archive command: ${err.message}`);
                 return reject(err);
             }
             
@@ -86,16 +86,16 @@ export async function executeArchiveCommand(
             
             stream.on('data', (data: Buffer) => {
                 stdout += data.toString();
-                logger?.info(`[DEBUG] Archive stdout: ${data.toString()}`);
+                logger?.info(`Archive stdout: ${data.toString()}`);
             });
             
             stream.stderr.on('data', (data: Buffer) => {
                 stderr += data.toString();
-                logger?.warn(`[DEBUG] Archive stderr: ${data.toString()}`);
+                logger?.warn(`Archive stderr: ${data.toString()}`);
             });
             
             stream.on('close', (code: number) => {
-                logger?.debug(`[DEBUG] Archive command exited with code ${code}`);
+                logger?.debug(`Archive command exited with code ${code}`);
                 if (code === 0) {
                     resolve();
                 } else {
@@ -165,11 +165,10 @@ export async function extractTarArchive(
     
     return new Promise((resolve, reject) => {
         exec(tarCmd, (error: any, stdout: string, stderr: string) => {
-            if (error) {
-                logger?.error(`[DEBUG] Error extracting logs.tar.gz: ${stderr}`);
+            if (error) {                logger?.error(`Error extracting logs.tar.gz: ${stderr}`);
                 return reject(new Error(`Failed to extract logs.tar.gz: ${stderr}`));
             }
-            logger?.debug(`[DEBUG] Extracted logs.tar.gz: ${stdout}`);
+            logger?.debug(`Extracted logs.tar.gz: ${stdout}`);
             resolve();
         });
     });
@@ -210,18 +209,15 @@ export async function transferLogs(options: LogTransferOptions): Promise<string>
     
     // Get archive paths
     const { remoteLogsDir, remoteArchivePath, isTar } = getRemoteArchivePaths(platform, extractDestDir);
-    
-    logger?.debug('[DEBUG] Starting Transfer Logs > Archive Logs Folder');
-    logger?.debug(`[DEBUG] Remote logs directory: ${remoteLogsDir}`);
-    logger?.debug(`[DEBUG] Remote archive path: ${remoteArchivePath}`);
-    
-    // Create archive command
+      logger?.debug('Starting log archiving...');
+    logger?.debug(`Remote logs directory: ${remoteLogsDir}`);
+    logger?.debug(`Remote archive path: ${remoteArchivePath}`);
+      // Create archive command
     const { command: archiveCmd } = createArchiveCommand(platform, remoteLogsDir, remoteArchivePath, shQuote);
-    logger?.debug(`[DEBUG] Archive command: ${archiveCmd}`);
     
     // Execute archive command
     await executeArchiveCommand(conn, archiveCmd, logger);
-    logger?.debug('[DEBUG] Finished Transfer Logs > Archive Logs Folder');    // Download and extract logs
+    logger?.debug('Log archiving completed');// Download and extract logs
     const localLogsDir = path.join(context.globalStorageUri.fsPath, LOGS_DIR_NAME, sanitizeLabel(runLabel));
     await downloadAndExtractLogs(sftp, remoteArchivePath, localLogsDir, isTar, logger);
     

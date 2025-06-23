@@ -49,14 +49,34 @@ export function getToolExecutableName(platform: string, baseName: string = 'Virt
 
 /**
  * Parse command line arguments string into key-value object
+ * Supports both --option=value and --option value formats
  */
 export function parseCommandLineArgs(args: string): Record<string, string | boolean> {
-    const regex = /--([\w-]+)(?:[= ]([^\s]+))?/g;
     const found: Record<string, string | boolean> = {};
+    
+    // Handle --option=value format
+    const equalsRegex = /--([\w-]+)=([^\s]+)/g;
     let match;
-    while ((match = regex.exec(args)) !== null) {
-        found[match[1]] = match[2] || true;
+    while ((match = equalsRegex.exec(args)) !== null) {
+        found[match[1]] = match[2];
     }
+    
+    // Handle --option value format (but skip if already found with equals)
+    const spaceRegex = /--([\w-]+)(?!\s*=)\s+([^\s-][^\s]*)/g;
+    while ((match = spaceRegex.exec(args)) !== null) {
+        if (!(match[1] in found)) { // Don't override equals format
+            found[match[1]] = match[2];
+        }
+    }
+    
+    // Handle flags (--option without value)
+    const flagRegex = /--([\w-]+)(?![=\s]*[^\s-])/g;
+    while ((match = flagRegex.exec(args)) !== null) {
+        if (!(match[1] in found)) { // Don't override previous assignments
+            found[match[1]] = true;
+        }
+    }
+    
     return found;
 }
 
@@ -73,8 +93,7 @@ export function buildVirtualClientCommand(
     
     // Helper to parse additionalArgs string into an object
     const additionalArgsObj = additionalArgs ? parseCommandLineArgs(additionalArgs) : {};
-    
-    // Helper to add argument if not overridden by additionalArgs
+      // Helper to add argument if not overridden by additionalArgs
     function addArg(cliKey: string, value: any, isFlag = false) {
         if (cliKey in additionalArgsObj) {
             return; // overridden
@@ -83,7 +102,7 @@ export function buildVirtualClientCommand(
             if (isFlag) {
                 vcCmd += ` --${cliKey}`;
             } else {
-                vcCmd += ` --${cliKey} ${shQuote(String(value))}`;
+                vcCmd += ` --${cliKey}=${shQuote(String(value))}`;
             }
         }
     }
