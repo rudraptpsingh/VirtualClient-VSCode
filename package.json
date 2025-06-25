@@ -86,10 +86,14 @@
       {
         "command": "virtual-client.exportTemplates",
         "title": "Export Templates"
-      },
-      {
+      },      {
         "command": "virtual-client.importTemplates",
         "title": "Import Templates"
+      },
+      {
+        "command": "virtual-client.summarizeLogs",
+        "title": "Summarize Logs with AI",
+        "icon": "$(sparkle)"
       }
     ],
     "viewsContainers": {
@@ -137,12 +141,17 @@
           "when": "view == virtualClientView && viewItem == scheduledRun",
           "group": "navigation@2",
           "title": "View Run Log"
-        },
-        {
+        },        {
           "command": "virtual-client.removeScheduledRun",
           "when": "view == virtualClientView && viewItem == scheduledRun",
           "group": "inline",
           "title": "Remove"
+        },
+        {
+          "command": "virtual-client.summarizeLogs",
+          "when": "view == virtualClientView && viewItem == scheduledRun",
+          "group": "navigation@3",
+          "title": "Summarize Logs with AI"
         }
       ],
       "view/title": [

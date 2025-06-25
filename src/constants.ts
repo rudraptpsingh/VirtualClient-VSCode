@@ -24,6 +24,9 @@ export const LOG_LABEL_PREFIX = 'Log: ';
 export const UNKNOWN_LABEL = 'unknown_label';
 export const UNKNOWN_IP = 'unknown_ip';
 
+// AI Log Analysis
+export const MAX_LOG_CONTENT_SIZE_BYTES = 100 * 1024; // 100KB limit for LLM token constraints
+
 // Step statuses
 export type StepStatus = 'pending' | 'running' | 'success' | 'error';
 

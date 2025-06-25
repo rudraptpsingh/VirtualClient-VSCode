@@ -11,6 +11,7 @@ import * as unzipper from 'unzipper';
 
 // Local files
 import { getAddMachineWebviewContent, getRunVirtualClientWebviewContent, showRunDetailsWebview } from './webviewContent';
+import { handleSummarizeLogs } from './commandHandlers';
 import { VirtualClientTreeViewProvider } from './VirtualClientTreeViewProvider';
 import { MachineCredentials } from './types';
 import { ScheduledRunsProvider, ScheduledRunItem, ScheduledRunStep } from './ScheduledRunsProvider';
@@ -489,8 +490,7 @@ export async function activate(context: vscode.ExtensionContext) {    try {     
                     vscode.window.showErrorMessage(`Failed to export templates: ${error instanceof Error ? error.message : error}`);
                 }
             }),
-            
-            vscode.commands.registerCommand('virtual-client.importTemplates', async () => {
+              vscode.commands.registerCommand('virtual-client.importTemplates', async () => {
                 try {
                     const uri = await vscode.window.showOpenDialog({
                         canSelectFiles: true,
@@ -509,6 +509,10 @@ export async function activate(context: vscode.ExtensionContext) {    try {     
                 } catch (error) {
                     vscode.window.showErrorMessage(`Failed to import templates: ${error instanceof Error ? error.message : error}`);
                 }
+            }),
+
+            vscode.commands.registerCommand('virtual-client.summarizeLogs', async (item: ScheduledRunItem) => {
+                await handleSummarizeLogs(context, item);
             }),
         ];
 

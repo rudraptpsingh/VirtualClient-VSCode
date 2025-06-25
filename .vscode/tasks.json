@@ -11,14 +11,40 @@
 				"isDefault": true
 			},
 			"problemMatcher": "$tsc"
-		},
-		{
+		},		{
 			"type": "npm",
 			"script": "watch",
 			"problemMatcher": "$tsc-watch",
 			"isBackground": true,
 			"presentation": {
 				"reveal": "never"
+			}
+		},
+		{
+			"label": "Test Extension",
+			"type": "shell",
+			"command": "npm",
+			"args": ["test"],
+			"group": "test",
+			"dependsOn": "npm: compile",
+			"presentation": {
+				"echo": true,
+				"reveal": "always",
+				"focus": false,
+				"panel": "shared"
+			}
+		},
+		{
+			"label": "Package Extension",
+			"type": "shell",
+			"command": "vsce",
+			"args": ["package"],
+			"group": "build",
+			"presentation": {
+				"echo": true,
+				"reveal": "always",
+				"focus": false,
+				"panel": "shared"
 			}
 		}
 	]
