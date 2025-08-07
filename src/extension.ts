@@ -514,6 +514,10 @@ export async function activate(context: vscode.ExtensionContext) {    try {     
             vscode.commands.registerCommand('virtual-client.summarizeLogs', async (item: ScheduledRunItem) => {
                 await handleSummarizeLogs(context, item);
             }),
+            vscode.commands.registerCommand('vscode-vc.installVCCertificates', async (item: MachineItem) => {
+                const { installVCCertificatesHandler } = await import('./commandHandlers');
+                await installVCCertificatesHandler(context, item);
+            }),
         ];
 
         context.subscriptions.push(...disposables);

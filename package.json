@@ -1,12 +1,14 @@
-{  "name": "virtual-client",
+{
+  "name": "virtual-client",
   "publisher": "rudraptpsingh",
   "displayName": "Virtual Client",
-  "description": "Runs Virtual Client tool on a remote machine with template support",  "version": "0.1.0",  "engines": {
+  "description": "Runs Virtual Client tool on a remote machine with template support",
+  "version": "0.1.0",
+  "engines": {
     "vscode": "^1.74.0"
   },
-  "categories": [
-    "Other"
-  ],  "keywords": [
+  "categories": ["Other"],
+  "keywords": [
     "virtual client",
     "remote",
     "ssh",
@@ -19,166 +21,61 @@
     "testing"
   ],
   "main": "./out/extension.js",
-  "activationEvents": [
-    "*"
-  ],
+  "activationEvents": [],
   "repository": {
     "type": "git",
     "url": "https://github.com/rudraptpsingh/VirtualClient-VSCode/"
   },
   "contributes": {
     "commands": [
-      {
-        "command": "virtual-client.streamLogs",
-        "title": "Stream Logs"
-      },
-      {
-        "command": "virtual-client.addMachineWebview",
-        "title": "Add a New Machine (Webview)"
-      },
-      {
-        "command": "virtual-client.runVirtualClientWebview",
-        "title": "Run Virtual Client"
-      },
-      {
-        "command": "machines.addMachine",
-        "title": "Add Machine"
-      },
-      {
-        "command": "scheduledRuns.openLogFile",
-        "title": "Open Log File"
-      },
-      {
-        "command": "machines.deleteMachine",
-        "title": "Delete Machine"
-      },
-      {
-        "command": "virtual-client.removeAllScheduledRuns",
-        "title": "Remove All"
-      },
-      {
-        "command": "virtual-client.openExtensionLogFile",
-        "title": "View Run Log"
-      },
-      {
-        "command": "virtual-client.refreshMachineStatus",
-        "title": "Refresh Machine Status"
-      },      {
-        "command": "virtual-client.removeScheduledRun",
-        "title": "Remove Scheduled Run"
-      },
-      {
-        "command": "virtual-client.saveTemplate",
-        "title": "Save as Template"
-      },
-      {
-        "command": "virtual-client.loadTemplate",
-        "title": "Load Template"
-      },
-      {
-        "command": "virtual-client.deleteTemplate",
-        "title": "Delete Template"
-      },
-      {
-        "command": "virtual-client.duplicateTemplate",
-        "title": "Duplicate Template"
-      },
-      {
-        "command": "virtual-client.exportTemplates",
-        "title": "Export Templates"
-      },      {
-        "command": "virtual-client.importTemplates",
-        "title": "Import Templates"
-      },
-      {
-        "command": "virtual-client.summarizeLogs",
-        "title": "Summarize Logs with AI",
-        "icon": "$(sparkle)"
-      }
+      {"command": "virtual-client.streamLogs", "title": "Stream Logs"},
+      {"command": "virtual-client.addMachineWebview", "title": "Add a New Machine (Webview)"},
+      {"command": "virtual-client.runVirtualClientWebview", "title": "Run Virtual Client"},
+      {"command": "machines.addMachine", "title": "Add Machine"},
+      {"command": "scheduledRuns.openLogFile", "title": "Open Log File"},
+      {"command": "machines.deleteMachine", "title": "Delete Machine"},
+      {"command": "virtual-client.removeAllScheduledRuns", "title": "Remove All"},
+      {"command": "virtual-client.openExtensionLogFile", "title": "View Run Log"},
+      {"command": "virtual-client.refreshMachineStatus", "title": "Refresh Machine Status"},
+      {"command": "virtual-client.removeScheduledRun", "title": "Remove Scheduled Run"},
+      {"command": "virtual-client.saveTemplate", "title": "Save as Template"},
+      {"command": "virtual-client.loadTemplate", "title": "Load Template"},
+      {"command": "virtual-client.deleteTemplate", "title": "Delete Template"},
+      {"command": "virtual-client.duplicateTemplate", "title": "Duplicate Template"},
+      {"command": "virtual-client.exportTemplates", "title": "Export Templates"},
+      {"command": "virtual-client.importTemplates", "title": "Import Templates"},
+      {"command": "virtual-client.summarizeLogs", "title": "Summarize Logs with AI", "icon": "$(sparkle)"},
+      {"command": "vscode-vc.installVCCertificates", "title": "Install VC Certificates"}
     ],
     "viewsContainers": {
       "activitybar": [
-        {
-          "id": "virtualClient",
-          "title": "Virtual Client",
-          "icon": "resources/vc-logo.png"
-        }
+        {"id": "virtualClient", "title": "Virtual Client", "icon": "resources/vc-logo.png"}
       ]
     },
     "views": {
       "virtualClient": [
-        {
-          "id": "machinesView",
-          "name": "Machines",
-          "icon": "resources/vc-logo.png"
-        },
-        {
-          "id": "virtualClientView",
-          "name": "Virtual Client",
-          "icon": "resources/vc-logo.png"
-        }
+        {"id": "machinesView", "name": "Machines", "icon": "resources/vc-logo.png"},
+        {"id": "virtualClientView", "name": "Virtual Client", "icon": "resources/vc-logo.png"}
       ]
     },
     "menus": {
       "view/item/context": [
-        {
-          "command": "virtual-client.addMachineWebview",
-          "when": "view == machinesView && viewItem == addMachine",
-          "group": "inline"
-        },
-        {
-          "command": "scheduledRuns.openLogFile",
-          "when": "view == virtualClientView && viewItem == logFile",
-          "group": "navigation@1"
-        },
-        {
-          "command": "machines.deleteMachine",
-          "when": "view == machinesView && viewItem == machine",
-          "group": "inline"
-        },
-        {
-          "command": "virtual-client.openExtensionLogFile",
-          "when": "view == virtualClientView && viewItem == scheduledRun",
-          "group": "navigation@2",
-          "title": "View Run Log"
-        },        {
-          "command": "virtual-client.removeScheduledRun",
-          "when": "view == virtualClientView && viewItem == scheduledRun",
-          "group": "inline",
-          "title": "Remove"
-        },
-        {
-          "command": "virtual-client.summarizeLogs",
-          "when": "view == virtualClientView && viewItem == scheduledRun",
-          "group": "navigation@3",
-          "title": "Summarize Logs with AI"
-        }
+        {"command": "virtual-client.addMachineWebview", "when": "view == machinesView && viewItem == addMachine", "group": "inline"},
+        {"command": "scheduledRuns.openLogFile", "when": "view == virtualClientView && viewItem == logFile", "group": "navigation@1"},
+        {"command": "machines.deleteMachine", "when": "view == machinesView && viewItem == machine", "group": "inline"},
+        {"command": "virtual-client.openExtensionLogFile", "when": "view == virtualClientView && viewItem == scheduledRun", "group": "navigation@2", "title": "View Run Log"},
+        {"command": "virtual-client.removeScheduledRun", "when": "view == virtualClientView && viewItem == scheduledRun", "group": "inline", "title": "Remove"},
+        {"command": "virtual-client.summarizeLogs", "when": "view == virtualClientView && viewItem == scheduledRun", "group": "navigation@3", "title": "Summarize Logs with AI"},
+        {"command": "vscode-vc.installVCCertificates", "when": "view == machinesView && viewItem == machine", "group": "inline", "title": "Install VC Certificates"}
       ],
       "view/title": [
-        {
-          "command": "machines.addMachine",
-          "when": "view == machinesView",
-          "group": "navigation@1"
-        },
-        {
-          "command": "virtual-client.runVirtualClientWebview",
-          "when": "view == virtualClientView",
-          "group": "navigation@1"
-        },
-        {
-          "command": "virtual-client.removeAllScheduledRuns",
-          "when": "view == virtualClientView",
-          "group": "navigation@2",
-          "title": "Remove All"
-        },
-        {
-          "command": "virtual-client.refreshMachineStatus",
-          "when": "view == machinesView",
-          "group": "navigation@2",
-          "icon": "$(refresh)"
-        }
+        {"command": "machines.addMachine", "when": "view == machinesView", "group": "navigation@1"},
+        {"command": "virtual-client.runVirtualClientWebview", "when": "view == virtualClientView", "group": "navigation@1"},
+        {"command": "virtual-client.removeAllScheduledRuns", "when": "view == virtualClientView", "group": "navigation@2", "title": "Remove All"},
+        {"command": "virtual-client.refreshMachineStatus", "when": "view == machinesView", "group": "navigation@2", "icon": "$(refresh)"}
       ]
-    },    "configuration": {
+    },
+    "configuration": {
       "type": "object",
       "title": "VSCode-VC Configuration",
       "properties": {
@@ -187,14 +84,16 @@
           "enum": ["debug", "info", "warn", "error"],
           "default": "debug",
           "description": "Log level for the VSCode-VC extension's internal logger. Set to 'debug' for verbose logs."
-        },        "virtualClient.refreshMachineStatusOnLoad": {
+        },
+        "virtualClient.refreshMachineStatusOnLoad": {
           "type": "boolean",
           "default": true,
           "description": "Automatically refresh machine connection status when the extension loads. This may slow down extension startup if you have many machines or slow network connections."
         }
       }
     }
-  },  "scripts": {
+  },
+  "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
@@ -216,6 +115,7 @@
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
     "@vscode/test-electron": "^2.5.2",
+    "@vscode/vsce": "^3.6.0",
     "eslint": "^8.0.0",
     "mocha": "^11.1.0",
     "typescript": "^5.0.0"

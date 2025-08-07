@@ -531,3 +531,183 @@ ${logContent}
         }
     }
 }
+
+/**
+ * Handler for installing VC certificates on a remote machine.
+ * Prompts for local .pfx file, cert password (optional), and remote directory (optional).
+ * @param context The extension context.
+ * @param item The target MachineItem.
+ */
+export async function installVCCertificatesHandler(context: vscode.ExtensionContext, item: MachineItem): Promise<void> {
+    const outputChannel = vscode.window.createOutputChannel(`Install VC Certificates - ${item.label}`);
+    outputChannel.show(true);
+    try {
+        // Prompt for local .pfx file
+        const fileUris = await vscode.window.showOpenDialog({
+            canSelectFiles: true,
+            canSelectFolders: false,
+            canSelectMany: false,
+            openLabel: 'Select VC Certificate (.pfx)',
+            filters: { 'PFX Files': ['pfx'] }
+        });
+        if (!fileUris || !fileUris[0]) {
+            vscode.window.showWarningMessage('No certificate file selected.');
+            return;
+        }
+        const localPfxPath = fileUris[0].fsPath;
+
+        // Prompt for cert password (optional)
+        const certPassword = await vscode.window.showInputBox({
+            prompt: 'Enter certificate password (optional)',
+            password: true,
+            ignoreFocusOut: true
+        });
+
+        // Prompt for remote directory (optional)
+        const remoteDirInput = await vscode.window.showInputBox({
+            prompt: `Enter remote directory for certificate (optional, default: ${item.getDefaultRemoteTargetDir()})`,
+            value: item.getDefaultRemoteTargetDir(),
+            ignoreFocusOut: true
+        });
+        const remoteDir = remoteDirInput && remoteDirInput.trim() ? remoteDirInput.trim() : item.getDefaultRemoteTargetDir();
+
+        // Get credentials
+        const credentials = { username: item.username, password: item.password };
+        if (!credentials.username || !credentials.password) {
+            vscode.window.showErrorMessage('Machine credentials not found.');
+            return;
+        }
+
+        // Connect via SSH
+        const ssh2 = require('ssh2');
+        const conn = new ssh2.Client();
+        await new Promise<void>((resolve, reject) => {
+            conn.on('ready', () => {
+                outputChannel.appendLine('SSH connection established.');
+                conn.sftp((err: any, sftp: any) => {
+                    if (err) {
+                        vscode.window.showErrorMessage('SFTP error: ' + err.message);
+                        outputChannel.appendLine('SFTP error: ' + err.message);
+                        conn.end();
+                        reject(err);
+                        return;
+                    }
+                    // Detect remote OS
+                    conn.exec(item.isWindows ? 'ver' : 'uname', (err: any, stream: any) => {
+                        if (err) {
+                            vscode.window.showErrorMessage('Failed to detect remote OS: ' + err.message);
+                            outputChannel.appendLine('Failed to detect remote OS: ' + err.message);
+                            conn.end();
+                            reject(err);
+                            return;
+                        }
+                        let osOutput = '';
+                        stream.on('data', (data: Buffer) => { osOutput += data.toString(); });
+                        stream.on('close', async () => {
+                            const isWindows = item.isWindows || osOutput.includes('Windows');
+                            const certFilename = require('path').basename(localPfxPath);
+                            let remoteCertPath: string;
+                            if (isWindows) {
+                                remoteCertPath = require('path').win32.join(remoteDir, certFilename);
+                            } else {
+                                remoteCertPath = require('path').posix.join(remoteDir, certFilename);
+                            }
+                            // Create remote directory
+                            const mkdirCmd = isWindows ? `powershell -Command "New-Item -ItemType Directory -Path '${remoteDir}' -Force"` : `mkdir -p '${remoteDir}'`;
+                            conn.exec(mkdirCmd, (err: any, mkdirStream: any) => {
+                                if (err) {
+                                    vscode.window.showErrorMessage('Failed to create remote directory: ' + err.message);
+                                    outputChannel.appendLine('Failed to create remote directory: ' + err.message);
+                                    conn.end();
+                                    reject(err);
+                                    return;
+                                }
+                                let uploadStarted = false;
+                                function startUpload() {
+                                    if (uploadStarted) { return; }
+                                    uploadStarted = true;
+                                    outputChannel.appendLine('Remote directory creation command exited/closed. Proceeding to upload certificate.');
+                                    outputChannel.appendLine(`Uploading certificate to ${remoteCertPath} ...`);
+                                    sftp.fastPut(localPfxPath, remoteCertPath, (err: any) => {
+                                        if (err) {
+                                            vscode.window.showErrorMessage('Failed to upload certificate: ' + err.message);
+                                            outputChannel.appendLine('Failed to upload certificate: ' + err.message);
+                                            conn.end();
+                                            reject(err);
+                                            return;
+                                        }
+                                        outputChannel.appendLine('Certificate uploaded.');
+                                        // Install the certificate
+                                        let installCmd;
+                                        if (isWindows) {
+                                            const escapedPath = remoteCertPath.replace(/\\/g, '\\\\');
+                                            installCmd = `powershell -Command "$ErrorActionPreference = 'Stop'; $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2; $cert.Import('${escapedPath}', '${certPassword || ''}', 'PersistKeySet'); $store = New-Object System.Security.Cryptography.X509Certificates.X509Store('My', 'CurrentUser'); $store.Open('ReadWrite'); $store.Add($cert); $store.Close(); Write-Output 'Certificate successfully imported.'"`;
+                                        } else {
+                                            installCmd = `openssl pkcs12 -in '${remoteCertPath}' -out '${remoteCertPath}.pem' -nodes -passin pass:${certPassword || ''}`;
+                                        }
+                                        outputChannel.appendLine('Installing certificate...');
+                                        conn.exec(installCmd, (err: any, installStream: any) => {
+                                            if (err) {
+                                                vscode.window.showErrorMessage('Failed to install certificate: ' + err.message);
+                                                outputChannel.appendLine('Failed to install certificate: ' + err.message);
+                                                conn.end();
+                                                reject(err);
+                                                return;
+                                            }
+                                            let installOut = '';
+                                            let installErr = '';
+                                            installStream.on('data', (data: Buffer) => { installOut += data.toString(); });
+                                            installStream.stderr.on('data', (data: Buffer) => { installErr += data.toString(); });
+                                            installStream.on('close', () => {
+                                                outputChannel.appendLine('Install Output:');
+                                                outputChannel.appendLine(installOut);
+                                                if (installErr) {
+                                                    outputChannel.appendLine('Install Error/Warning:');
+                                                    outputChannel.appendLine(installErr);
+                                                }
+                                                // Delete the .pfx file
+                                                const deleteCmd = isWindows ? `del "${remoteCertPath}"` : `rm '${remoteCertPath}'`;
+                                                conn.exec(deleteCmd, (err: any, delStream: any) => {
+                                                    if (err) {
+                                                        vscode.window.showWarningMessage('Failed to delete certificate file after install: ' + err.message);
+                                                        outputChannel.appendLine('Failed to delete certificate file after install: ' + err.message);
+                                                        conn.end();
+                                                        resolve();
+                                                        return;
+                                                    }
+                                                    delStream.on('close', () => {
+                                                        outputChannel.appendLine('Certificate file deleted from remote machine.');
+                                                        vscode.window.showInformationMessage('Certificate installed and cleaned up successfully.');
+                                                        conn.end();
+                                                        resolve();
+                                                    });
+                                                });
+                                            });
+                                        });
+                                    });
+                                }
+                                mkdirStream.on('exit', startUpload);
+                                mkdirStream.on('close', startUpload); // fallback
+                            });
+                        });
+                    });
+                });
+            });
+            conn.on('error', (err: any) => {
+                vscode.window.showErrorMessage('SSH connection error: ' + err.message);
+                outputChannel.appendLine('SSH connection error: ' + err.message);
+                reject(err);
+            });
+            conn.connect({
+                host: item.ip,
+                port: 22,
+                username: credentials.username,
+                password: credentials.password,
+                readyTimeout: 10000
+            });
+        });
+    } catch (error: any) {
+        vscode.window.showErrorMessage(`Failed to install VC certificate: ${error.message || error}`);
+        outputChannel.appendLine(`Failed to install VC certificate: ${error.message || error}`);
+    }
+}

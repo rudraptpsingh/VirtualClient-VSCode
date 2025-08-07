@@ -27,7 +27,7 @@ export function getAddMachineWebviewContent(): string {
             <label for="platform">Platform:</label><br>
             <select id="platform" name="platform" required>
                 <option value="">Select platform</option>
-                <option value="windows-x64">Windows x64</option>
+                <option value="win-x64">Windows x64</option>
                 <option value="win-arm64">Windows ARM64</option>
                 <option value="linux-x64">Linux x64</option>
                 <option value="linux-arm64">Linux ARM64</option>
