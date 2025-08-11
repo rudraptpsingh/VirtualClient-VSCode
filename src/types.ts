@@ -15,7 +15,7 @@ export enum LogLevel {
     Error = 0,
     Warning = 1,
     Info = 2,
-    Debug = 3
+    Debug = 3,
 }
 
 /**
@@ -59,7 +59,9 @@ export class Logger {
     }
 
     log(level: LogLevel, msg: string) {
-        if (level > this.level) { return; }
+        if (level > this.level) {
+            return;
+        }
         const prefix = `[${LogLevel[level].toUpperCase()}]`;
         const line = `${prefix} [${new Date().toISOString()}] ${msg}`;
         if (this.outputChannel) {

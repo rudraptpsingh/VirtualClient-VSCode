@@ -31,7 +31,7 @@ export enum TemplateCategory {
     Networking = 'Networking',
     Storage = 'Storage',
     Custom = 'Custom',
-    Benchmarking = 'Benchmarking'
+    Benchmarking = 'Benchmarking',
 }
 
 /**
@@ -42,13 +42,13 @@ export interface TemplateParameters {
     packagePath?: string;
     profile: string;
     system?: string;
-    
+
     // Execution Control
     timeout?: number;
     iterations?: number;
     exitWait?: number;
     dependencies?: string;
-    
+
     // Advanced Parameters
     parameters?: string; // key=value pairs
     proxyApi?: string;
@@ -59,7 +59,7 @@ export interface TemplateParameters {
     metadata?: string;
     port?: string;
     ipAddress?: string;
-    
+
     // File Paths
     contentStore?: string;
     contentPath?: string;
@@ -72,14 +72,14 @@ export interface TemplateParameters {
     scenarios?: string;
     logger?: string;
     wait?: string;
-    
+
     // Options/Flags
     logToFile?: boolean;
     clean?: boolean | string; // can be boolean or comma-separated values
     debug?: boolean;
     failFast?: boolean;
     logLevel?: string;
-    
+
     // Additional Arguments
     additionalArgs?: string;
 }
@@ -122,18 +122,20 @@ export class TemplateManager {
             this.logger?.error?.(`Failed to initialize template manager: ${error}`);
             throw error;
         }
-    }    /**
+    }
+    /**
      * Save a new template
-     */    async saveTemplate(
+     */ async saveTemplate(
         name: string,
-        description: string,        parameters: TemplateParameters,
+        description: string,
+        parameters: TemplateParameters,
         category: TemplateCategory,
         tags?: string[]
     ): Promise<RunTemplate> {
         try {
             // Generate unique ID
             const id = this.generateTemplateId(name);
-            
+
             // Create template object
             const template: RunTemplate = {
                 id,
@@ -146,7 +148,8 @@ export class TemplateManager {
                     usageCount: 0,
                     version: '1.0.0',
                     author: 'user',
-                    tags: tags || []                }
+                    tags: tags || [],
+                },
             };
 
             // Save to memory
@@ -174,10 +177,10 @@ export class TemplateManager {
                 // Update usage statistics
                 template.metadata.lastUsedDate = new Date().toISOString();
                 template.metadata.usageCount++;
-                
+
                 // Save updated template
                 await this.saveTemplateToDisk(template);
-                
+
                 this.logger?.debug?.(`Template '${template.name}' loaded successfully`);
                 return template;
             }
@@ -206,14 +209,14 @@ export class TemplateManager {
      */
     getTemplatesByCategory(category: TemplateCategory): RunTemplate[] {
         return this.getAllTemplates().filter(t => t.category === category);
-    }    /**
+    } /**
      * Delete a template
      */
     async deleteTemplate(id: string): Promise<boolean> {
         try {
             this.logger?.info?.(`Attempting to delete template with ID: ${id}`);
             this.logger?.info?.(`Available template IDs: ${Array.from(this.templates.keys()).join(', ')}`);
-            
+
             const template = this.templates.get(id);
             if (!template) {
                 this.logger?.warn?.(`Template with ID '${id}' not found in memory`);
@@ -251,8 +254,8 @@ export class TemplateManager {
                 id, // Ensure ID doesn't change
                 metadata: {
                     ...template.metadata,
-                    ...updates.metadata
-                }
+                    ...updates.metadata,
+                },
             };
 
             // Save to memory
@@ -267,7 +270,7 @@ export class TemplateManager {
             this.logger?.error?.(`Failed to update template: ${error}`);
             return undefined;
         }
-    }    /**
+    } /**
      * Export template(s) to JSON file
      */
     async exportTemplates(templateIds: string[], exportPath: string): Promise<boolean> {
@@ -283,7 +286,7 @@ export class TemplateManager {
             const exportData = {
                 version: '1.0.0',
                 exportDate: new Date().toISOString(),
-                templates: templatesToExport
+                templates: templatesToExport,
             };
 
             await vscode.workspace.fs.writeFile(
@@ -314,7 +317,7 @@ export class TemplateManager {
             let importCount = 0;
             for (const templateData of importData.templates) {
                 const existingTemplate = this.templates.get(templateData.id);
-                
+
                 if (existingTemplate && !overwrite) {
                     // Skip if template exists and overwrite is false
                     continue;
@@ -324,7 +327,7 @@ export class TemplateManager {
                 templateData.metadata = {
                     ...templateData.metadata,
                     createdDate: existingTemplate?.metadata.createdDate || new Date().toISOString(),
-                    usageCount: existingTemplate?.metadata.usageCount || 0
+                    usageCount: existingTemplate?.metadata.usageCount || 0,
                 };
 
                 this.templates.set(templateData.id, templateData);
@@ -357,14 +360,14 @@ export class TemplateManager {
         try {
             const templatesDir = this.getTemplatesDirectory();
             const files = await vscode.workspace.fs.readDirectory(vscode.Uri.file(templatesDir));
-            
+
             for (const [fileName, fileType] of files) {
                 if (fileType === vscode.FileType.File && fileName.endsWith('.json')) {
                     try {
                         const filePath = path.join(templatesDir, fileName);
                         const content = await vscode.workspace.fs.readFile(vscode.Uri.file(filePath));
                         const template: RunTemplate = JSON.parse(content.toString());
-                        
+
                         // Validate template structure
                         if (this.isValidTemplate(template)) {
                             this.templates.set(template.id, template);

@@ -7,4 +7,4 @@ declare module 'ssh2' {
         sftp(callback: (err: Error | undefined, sftp: any) => void): void;
     }
     export type SFTPWrapper = any;
-} 
+}

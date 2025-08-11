@@ -6,16 +6,26 @@ import { Logger, LogLevel } from './types';
 /**
  * Provides the main tree view for the Virtual Client extension, showing machines and scheduled runs.
  */
-export class VirtualClientTreeViewProvider implements vscode.TreeDataProvider<MachineItem | ScheduledRunItem | ScheduledRunStep> {
-    private _onDidChangeTreeData: vscode.EventEmitter<MachineItem | ScheduledRunItem | ScheduledRunStep | undefined | void> = new vscode.EventEmitter<MachineItem | ScheduledRunItem | ScheduledRunStep | undefined | void>();
-    readonly onDidChangeTreeData: vscode.Event<MachineItem | ScheduledRunItem | ScheduledRunStep | undefined | void> = this._onDidChangeTreeData.event;
+export class VirtualClientTreeViewProvider
+    implements vscode.TreeDataProvider<MachineItem | ScheduledRunItem | ScheduledRunStep>
+{
+    private _onDidChangeTreeData: vscode.EventEmitter<
+        MachineItem | ScheduledRunItem | ScheduledRunStep | undefined | void
+    > = new vscode.EventEmitter<MachineItem | ScheduledRunItem | ScheduledRunStep | undefined | void>();
+    readonly onDidChangeTreeData: vscode.Event<MachineItem | ScheduledRunItem | ScheduledRunStep | undefined | void> =
+        this._onDidChangeTreeData.event;
 
     private context: vscode.ExtensionContext;
-    private sharedMachines: { label: string, ip: string }[];
+    private sharedMachines: { label: string; ip: string }[];
     private scheduledRunsProvider: ScheduledRunsProvider;
     private logger: Logger;
 
-    constructor(context: vscode.ExtensionContext, sharedMachines: { label: string, ip: string }[], scheduledRunsProvider: ScheduledRunsProvider, logger?: Logger) {
+    constructor(
+        context: vscode.ExtensionContext,
+        sharedMachines: { label: string; ip: string }[],
+        scheduledRunsProvider: ScheduledRunsProvider,
+        logger?: Logger
+    ) {
         this.context = context;
         this.sharedMachines = sharedMachines;
         this.scheduledRunsProvider = scheduledRunsProvider;
@@ -24,7 +34,7 @@ export class VirtualClientTreeViewProvider implements vscode.TreeDataProvider<Ma
     }
 
     public get machines(): MachineItem[] {
-        const machines = this.context.globalState.get<{ label: string, ip: string }[]>('machines', []);
+        const machines = this.context.globalState.get<{ label: string; ip: string }[]>('machines', []);
         return machines.map(m => new MachineItem(m.label, m.ip, vscode.TreeItemCollapsibleState.Collapsed, 'machine'));
     }
 
@@ -33,14 +43,14 @@ export class VirtualClientTreeViewProvider implements vscode.TreeDataProvider<Ma
             element.command = {
                 command: 'virtual-client.addMachineWebview',
                 title: 'Add New Machine',
-                arguments: []
+                arguments: [],
             };
         }
         if (element instanceof MachineItem && element.contextValue === 'machine') {
             element.command = {
                 command: 'virtual-client.runVirtualClientWebview',
                 title: 'Run Virtual Client',
-                arguments: [element]
+                arguments: [element],
             };
         }
         if (element instanceof ScheduledRunItem || element instanceof ScheduledRunStep) {
@@ -49,10 +59,17 @@ export class VirtualClientTreeViewProvider implements vscode.TreeDataProvider<Ma
         return element;
     }
 
-    getChildren(element?: MachineItem | ScheduledRunItem | ScheduledRunStep): Promise<(MachineItem | ScheduledRunItem | ScheduledRunStep)[]> {
+    getChildren(
+        element?: MachineItem | ScheduledRunItem | ScheduledRunStep
+    ): Promise<(MachineItem | ScheduledRunItem | ScheduledRunStep)[]> {
         if (!element) {
             this.logger.debug('Getting root machine nodes');
-            return Promise.resolve(this.machines);
+            // Only show machines that have scheduled runs
+            const machinesWithRuns = this.machines.filter(machine => {
+                const runs = this.scheduledRunsProvider.getRunsForMachine(machine.ip);
+                return runs.length > 0;
+            });
+            return Promise.resolve(machinesWithRuns);
         }
         if (element instanceof MachineItem && element.contextValue === 'machine') {
             this.logger.debug(`Getting scheduled runs for machine: ${element.label} (${element.ip})`);
@@ -86,8 +103,8 @@ export class VirtualClientTreeViewProvider implements vscode.TreeDataProvider<Ma
                 command: 'virtual-client.clearScheduledRuns',
                 title: 'Clear',
                 tooltip: 'Clear all scheduled runs and logs',
-                arguments: []
-            }
+                arguments: [],
+            },
         ];
     }
 }

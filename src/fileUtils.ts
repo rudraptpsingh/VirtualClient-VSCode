@@ -21,10 +21,7 @@ export async function checkFileExists(filePath: string): Promise<boolean> {
 /**
  * Validate file existence and show error if not found
  */
-export async function validateFileExists(
-    filePath: string,
-    errorMessage?: string
-): Promise<void> {
+export async function validateFileExists(filePath: string, errorMessage?: string): Promise<void> {
     const exists = await checkFileExists(filePath);
     if (!exists) {
         const message = errorMessage || `File not found or inaccessible: ${filePath}`;
@@ -36,10 +33,7 @@ export async function validateFileExists(
 /**
  * Open file in VS Code editor with error handling
  */
-export async function openFileInEditor(
-    filePath: string,
-    preview: boolean = false
-): Promise<void> {
+export async function openFileInEditor(filePath: string, preview: boolean = false): Promise<void> {
     try {
         await validateFileExists(filePath);
         const doc = await vscode.workspace.openTextDocument(filePath);
@@ -54,10 +48,7 @@ export async function openFileInEditor(
 /**
  * Create directory with logger support
  */
-export async function ensureDirectoryExistsWithLogging(
-    dirPath: string,
-    logger?: Logger
-): Promise<void> {
+export async function ensureDirectoryExistsWithLogging(dirPath: string, logger?: Logger): Promise<void> {
     try {
         await fsPromises.mkdir(dirPath, { recursive: true });
         logger?.debug?.(`Directory ensured: ${dirPath}`);
@@ -72,16 +63,14 @@ export async function ensureDirectoryExistsWithLogging(
 /**
  * Delete file or directory recursively with error collection
  */
-export async function deletePathRecursively(
-    targetPath: string,
-    failedDeletes: string[]
-): Promise<void> {
+export async function deletePathRecursively(targetPath: string, failedDeletes: string[]): Promise<void> {
     try {
         await fsPromises.access(targetPath);
         const entries = await fsPromises.readdir(targetPath, { withFileTypes: true });
-        
+
         for (const entry of entries) {
-            const curPath = path.join(targetPath, entry.name);            if (entry.isDirectory()) {
+            const curPath = path.join(targetPath, entry.name);
+            if (entry.isDirectory()) {
                 await deletePathRecursively(curPath, failedDeletes);
                 try {
                     await fsPromises.rmdir(curPath);
@@ -120,14 +109,14 @@ export async function validatePackagePath(packagePath: string): Promise<{ isVali
         if (!stats.isFile()) {
             return {
                 isValid: false,
-                error: `Local package path is not a file: ${packagePath}`
+                error: `Local package path is not a file: ${packagePath}`,
             };
         }
         return { isValid: true };
     } catch (error) {
         return {
             isValid: false,
-            error: `Local package path does not exist or is not accessible: ${packagePath} - ${error instanceof Error ? error.message : error}`
+            error: `Local package path does not exist or is not accessible: ${packagePath} - ${error instanceof Error ? error.message : error}`,
         };
     }
 }

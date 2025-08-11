@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { v4 as uuidv4 } from 'uuid';
 import { Logger, LogLevel } from './types';
+import { LOGS_DIR_NAME } from './constants';
 
 /**
  * Represents a step in a scheduled run.
@@ -57,8 +58,10 @@ export class ScheduledRunItem extends vscode.TreeItem {
  * Provides the tree data for scheduled runs.
  */
 export class ScheduledRunsProvider implements vscode.TreeDataProvider<ScheduledRunItem | ScheduledRunStep> {
-    private _onDidChangeTreeData: vscode.EventEmitter<ScheduledRunItem | ScheduledRunStep | undefined | void> = new vscode.EventEmitter<ScheduledRunItem | ScheduledRunStep | undefined | void>();
-    readonly onDidChangeTreeData: vscode.Event<ScheduledRunItem | ScheduledRunStep | undefined | void> = this._onDidChangeTreeData.event;
+    private _onDidChangeTreeData: vscode.EventEmitter<ScheduledRunItem | ScheduledRunStep | undefined | void> =
+        new vscode.EventEmitter<ScheduledRunItem | ScheduledRunStep | undefined | void>();
+    readonly onDidChangeTreeData: vscode.Event<ScheduledRunItem | ScheduledRunStep | undefined | void> =
+        this._onDidChangeTreeData.event;
     private runs: ScheduledRunItem[] = [];
     private logger: Logger;
     private context: vscode.ExtensionContext;
@@ -80,16 +83,22 @@ export class ScheduledRunsProvider implements vscode.TreeDataProvider<ScheduledR
             );
             item.description = element.status;
             item.iconPath = new vscode.ThemeIcon(
-                element.status === 'success' ? 'check' :
-                element.status === 'error' ? 'error' :
-                element.status === 'running' ? 'loading~spin' : 'clock'
+                element.status === 'success'
+                    ? 'check'
+                    : element.status === 'error'
+                      ? 'error'
+                      : element.status === 'running'
+                        ? 'loading~spin'
+                        : 'clock'
             );
-            if (element.detail) { item.tooltip = element.detail; }
+            if (element.detail) {
+                item.tooltip = element.detail;
+            }
             if (element.label === 'Logs') {
                 item.command = {
                     title: 'Open Log File',
                     command: 'virtual-client.openLogFile',
-                    arguments: [element]
+                    arguments: [element],
                 };
                 item.iconPath = new vscode.ThemeIcon('output');
             }
@@ -97,7 +106,7 @@ export class ScheduledRunsProvider implements vscode.TreeDataProvider<ScheduledR
                 item.command = {
                     title: 'Open Log File',
                     command: 'virtual-client.openLogFile',
-                    arguments: [element]
+                    arguments: [element],
                 };
                 item.iconPath = new vscode.ThemeIcon('file');
             }
@@ -105,7 +114,7 @@ export class ScheduledRunsProvider implements vscode.TreeDataProvider<ScheduledR
                 item.command = {
                     title: 'Download logs.zip',
                     command: 'virtual-client.downloadLogsZip',
-                    arguments: [element]
+                    arguments: [element],
                 };
                 item.iconPath = new vscode.ThemeIcon('cloud-download');
             }
@@ -174,7 +183,7 @@ export class ScheduledRunsProvider implements vscode.TreeDataProvider<ScheduledR
             new ScheduledRunStep('Prepare Remote Environment', 'pending'),
             new ScheduledRunStep('Upload & Extract Package', 'pending'),
             new ScheduledRunStep('Execute Virtual Client', 'pending'),
-            new ScheduledRunStep('Logs', 'pending')
+            new ScheduledRunStep('Logs', 'pending'),
         ];
         // Use unified label logic
         const label = ScheduledRunsProvider.getRunLabel(runTimestamp, machineIp);
@@ -245,31 +254,14 @@ export class ScheduledRunsProvider implements vscode.TreeDataProvider<ScheduledR
             const fsPromises = require('fs').promises;
             (async () => {
                 try {
-                    // Use the logsDir from the extension context
-                    const logsDir = path.join(this.context.globalStorageUri.fsPath, 'logs');
+                    const logsDir = path.join(this.context.globalStorageUri.fsPath, LOGS_DIR_NAME);
                     const logLabel = ScheduledRunsProvider.getRunLabel(run.timestamp, run.machineIp);
                     const logFilePath = path.join(logsDir, `${logLabel}.log`);
-                    try { await fsPromises.unlink(logFilePath); } catch (e) { this.logger.warn(`Could not delete log file: ${logFilePath}`); }
-                    // Remove log folder (recursively)
+                    try {
+                        await fsPromises.unlink(logFilePath);
+                    } catch {}
                     const logFolderPath = path.join(logsDir, logLabel);
-                    async function deleteDirRecursive(dir: string) {
-                        try {
-                            const entries = await fsPromises.readdir(dir, { withFileTypes: true });
-                            for (const entry of entries) {
-                                const fullPath = path.join(dir, entry.name);
-                                if (entry.isDirectory()) {
-                                    await deleteDirRecursive(fullPath);
-                                    await fsPromises.rmdir(fullPath).catch(() => {});
-                                } else {
-                                    await fsPromises.unlink(fullPath).catch(() => {});
-                                }
-                            }
-                            await fsPromises.rmdir(dir).catch(() => {});
-                        } catch (err) {
-                            // Directory may not exist, ignore
-                        }
-                    }
-                    await deleteDirRecursive(logFolderPath);
+                    await fsPromises.rm(logFolderPath, { recursive: true, force: true }).catch(() => {});
                 } catch (err) {
                     this.logger.warn('Failed to delete log file/folder for removed run: ' + err);
                 }

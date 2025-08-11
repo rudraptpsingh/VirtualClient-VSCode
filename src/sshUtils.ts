@@ -21,7 +21,7 @@ export function executeSSHCommand(
 ): Promise<SSHCommandResult> {
     return new Promise((resolve, reject) => {
         logger?.debug?.(`Executing SSH command: ${command}`);
-        
+
         connection.exec(command, (err: Error | undefined, stream: any) => {
             if (err) {
                 logger?.error?.(`SSH command failed to start: ${err.message}`);
@@ -59,7 +59,7 @@ export function executeSSHCommandWithStreaming(
 ): Promise<SSHCommandResult> {
     return new Promise((resolve, reject) => {
         logger?.debug?.(`Executing SSH command with streaming: ${command}`);
-        
+
         connection.exec(command, (err: Error | undefined, stream: any) => {
             if (err) {
                 logger?.error?.(`SSH command failed to start: ${err.message}`);
@@ -106,13 +106,10 @@ export function executeSFTPOperation<T>(
 /**
  * Setup SSH connection with standardized configuration
  */
-export function setupSSHConnection(
-    host: string,
-    credentials: MachineCredentials
-): Promise<ssh2.Client> {
+export function setupSSHConnection(host: string, credentials: MachineCredentials): Promise<ssh2.Client> {
     return new Promise((resolve, reject) => {
         const connection = new ssh2.Client();
-        
+
         connection.on('ready', () => {
             resolve(connection);
         });
@@ -126,8 +123,8 @@ export function setupSSHConnection(
             username: credentials.username,
             password: credentials.password,
             algorithms: {
-                cipher: ['aes128-ctr']
-            }
+                cipher: ['aes128-ctr'],
+            },
         });
     });
 }
@@ -150,11 +147,7 @@ export function setupSFTP(connection: ssh2.Client): Promise<ssh2.SFTPWrapper> {
 /**
  * Check if file exists on remote system via SFTP
  */
-export function checkRemoteFileExists(
-    sftp: ssh2.SFTPWrapper,
-    remotePath: string,
-    logger?: Logger
-): Promise<boolean> {
+export function checkRemoteFileExists(sftp: ssh2.SFTPWrapper, remotePath: string, logger?: Logger): Promise<boolean> {
     return new Promise(resolve => {
         sftp.stat(remotePath, (err: any) => {
             const exists = !err;
@@ -167,11 +160,7 @@ export function checkRemoteFileExists(
 /**
  * Downloads file via SFTP
  */
-export async function sftpDownloadFile(
-    sftp: any,
-    remotePath: string,
-    localPath: string
-): Promise<void> {
+export async function sftpDownloadFile(sftp: any, remotePath: string, localPath: string): Promise<void> {
     return new Promise((resolve, reject) => {
         sftp.fastGet(remotePath, localPath, (err: Error) => {
             if (err) {

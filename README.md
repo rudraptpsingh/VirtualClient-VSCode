@@ -1,6 +1,6 @@
 # Virtual Client VS Code Extension
 
-**Version 0.1.0** - A VS Code extension to run the [Virtual Client](https://github.com/microsoft/VirtualClient) tool on remote machines directly from Visual Studio Code. Manage remote machines, schedule and monitor runs, and stream logs—all from a convenient UI.
+**Version 0.0.0** - A VS Code extension to run the [Virtual Client](https://github.com/microsoft/VirtualClient) tool on remote machines directly from Visual Studio Code. Manage remote machines, schedule and monitor runs, and stream logs—all from a convenient UI.Virtual Client VS Code Extension
 
 ---
 
@@ -16,6 +16,8 @@
 ---
 
 ## Installation & Setup
+
+Requires VS Code 1.96.0 or later.
 
 ### Method 1: VS Code Extension (Recommended)
 - **From Marketplace:**
@@ -101,6 +103,8 @@ docker run -d -p 8080:8080 --name virtual-client virtual-client
 - `Refresh Machine Status`
 - `Remove Scheduled Run`
 - `Stream Logs`
+- `Summarize Logs with AI`
+- `Install VC Certificates`
 
 ---
 
@@ -149,7 +153,8 @@ The extension comes with several predefined templates for common scenarios:
 
 ## Version History
 
-### Version 0.1.0 (2025-06-12)
+### Version 0.0.0 (Current Development)
+Initial development version - not yet released
 **Major Release: Templates & Profiles System**
 
 #### New Features
@@ -188,6 +193,32 @@ vsce package
 ```
 
 ### Option 2: Docker Container
+
+#### Windows (CMD/7-Zip)
+```cmd
+REM Build Docker image
+docker build -t virtual-client .
+
+REM Save Docker image to tar file
+docker save -o virtual-client.tar virtual-client
+
+REM Compress tar file using 7-Zip (if installed)
+7z a virtual-client.zip virtual-client.tar
+```
+
+#### To load and run on another Windows machine
+```cmd
+REM Decompress the archive
+7z x virtual-client.zip
+
+REM Load Docker image
+docker load -i virtual-client.tar
+
+REM Run the container
+docker run -d -p 8080:8080 --name virtual-client virtual-client
+```
+
+#### Linux/Mac
 ```bash
 # Build and save container
 docker build -t virtual-client .

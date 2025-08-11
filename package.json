@@ -3,11 +3,13 @@
   "publisher": "rudraptpsingh",
   "displayName": "Virtual Client",
   "description": "Runs Virtual Client tool on a remote machine with template support",
-  "version": "0.1.0",
+  "version": "0.0.0",
   "engines": {
-    "vscode": "^1.74.0"
+    "vscode": "^1.96.0"
   },
-  "categories": ["Other"],
+  "categories": [
+    "Other"
+  ],
   "keywords": [
     "virtual client",
     "remote",
@@ -28,51 +30,171 @@
   },
   "contributes": {
     "commands": [
-      {"command": "virtual-client.streamLogs", "title": "Stream Logs"},
-      {"command": "virtual-client.addMachineWebview", "title": "Add a New Machine (Webview)"},
-      {"command": "virtual-client.runVirtualClientWebview", "title": "Run Virtual Client"},
-      {"command": "machines.addMachine", "title": "Add Machine"},
-      {"command": "scheduledRuns.openLogFile", "title": "Open Log File"},
-      {"command": "machines.deleteMachine", "title": "Delete Machine"},
-      {"command": "virtual-client.removeAllScheduledRuns", "title": "Remove All"},
-      {"command": "virtual-client.openExtensionLogFile", "title": "View Run Log"},
-      {"command": "virtual-client.refreshMachineStatus", "title": "Refresh Machine Status"},
-      {"command": "virtual-client.removeScheduledRun", "title": "Remove Scheduled Run"},
-      {"command": "virtual-client.saveTemplate", "title": "Save as Template"},
-      {"command": "virtual-client.loadTemplate", "title": "Load Template"},
-      {"command": "virtual-client.deleteTemplate", "title": "Delete Template"},
-      {"command": "virtual-client.duplicateTemplate", "title": "Duplicate Template"},
-      {"command": "virtual-client.exportTemplates", "title": "Export Templates"},
-      {"command": "virtual-client.importTemplates", "title": "Import Templates"},
-      {"command": "virtual-client.summarizeLogs", "title": "Summarize Logs with AI", "icon": "$(sparkle)"},
-      {"command": "vscode-vc.installVCCertificates", "title": "Install VC Certificates"}
+      {
+        "command": "virtual-client.streamLogs",
+        "title": "Stream Logs",
+        "category": "Virtual Client"
+      },
+      {
+        "command": "virtual-client.addMachineWebview",
+        "title": "Add a New Machine (Webview)",
+        "category": "Virtual Client"
+      },
+      {
+        "command": "virtual-client.runVirtualClientWebview",
+        "title": "Run Virtual Client",
+        "category": "Virtual Client"
+      },
+      {
+        "command": "machines.addMachine",
+        "title": "Add Machine",
+        "category": "Virtual Client"
+      },
+      {
+        "command": "virtual-client.openLogFile",
+        "title": "Open Log File",
+        "category": "Virtual Client"
+      },
+      {
+        "command": "machines.deleteMachine",
+        "title": "Delete Machine",
+        "category": "Virtual Client"
+      },
+      {
+        "command": "virtual-client.clearScheduledRuns",
+        "title": "Clear All",
+        "category": "Virtual Client"
+      },
+      {
+        "command": "virtual-client.openExtensionLogFile",
+        "title": "View Run Log",
+        "category": "Virtual Client"
+      },
+      {
+        "command": "virtual-client.refreshMachineStatus",
+        "title": "Refresh Machine Status",
+        "category": "Virtual Client"
+      },
+      {
+        "command": "virtual-client.removeScheduledRun",
+        "title": "Remove Scheduled Run",
+        "category": "Virtual Client"
+      },
+      {
+        "command": "virtual-client.saveTemplate",
+        "title": "Save as Template",
+        "category": "Virtual Client"
+      },
+      {
+        "command": "virtual-client.loadTemplate",
+        "title": "Load Template",
+        "category": "Virtual Client"
+      },
+      {
+        "command": "virtual-client.deleteTemplate",
+        "title": "Delete Template",
+        "category": "Virtual Client"
+      },
+      {
+        "command": "virtual-client.exportTemplates",
+        "title": "Export Templates",
+        "category": "Virtual Client"
+      },
+      {
+        "command": "virtual-client.importTemplates",
+        "title": "Import Templates",
+        "category": "Virtual Client"
+      },
+      {
+        "command": "virtual-client.summarizeLogs",
+        "title": "Summarize Logs with AI",
+        "icon": "$(sparkle)",
+        "category": "Virtual Client"
+      },
+      {
+        "command": "vscode-vc.installVCCertificates",
+        "title": "Install VC Certificates",
+        "category": "Virtual Client"
+      }
     ],
     "viewsContainers": {
       "activitybar": [
-        {"id": "virtualClient", "title": "Virtual Client", "icon": "resources/vc-logo.png"}
+        {
+          "id": "virtualClient",
+          "title": "Virtual Client",
+          "icon": "resources/vc-logo.png"
+        }
       ]
     },
     "views": {
       "virtualClient": [
-        {"id": "machinesView", "name": "Machines", "icon": "resources/vc-logo.png"},
-        {"id": "virtualClientView", "name": "Virtual Client", "icon": "resources/vc-logo.png"}
+        {
+          "id": "machinesView",
+          "name": "Machines",
+          "icon": "resources/vc-logo.png"
+        },
+        {
+          "id": "virtualClientView",
+          "name": "Virtual Client",
+          "icon": "resources/vc-logo.png"
+        }
       ]
     },
     "menus": {
       "view/item/context": [
-        {"command": "virtual-client.addMachineWebview", "when": "view == machinesView && viewItem == addMachine", "group": "inline"},
-        {"command": "scheduledRuns.openLogFile", "when": "view == virtualClientView && viewItem == logFile", "group": "navigation@1"},
-        {"command": "machines.deleteMachine", "when": "view == machinesView && viewItem == machine", "group": "inline"},
-        {"command": "virtual-client.openExtensionLogFile", "when": "view == virtualClientView && viewItem == scheduledRun", "group": "navigation@2", "title": "View Run Log"},
-        {"command": "virtual-client.removeScheduledRun", "when": "view == virtualClientView && viewItem == scheduledRun", "group": "inline", "title": "Remove"},
-        {"command": "virtual-client.summarizeLogs", "when": "view == virtualClientView && viewItem == scheduledRun", "group": "navigation@3", "title": "Summarize Logs with AI"},
-        {"command": "vscode-vc.installVCCertificates", "when": "view == machinesView && viewItem == machine", "group": "inline", "title": "Install VC Certificates"}
+        {
+          "command": "machines.deleteMachine",
+          "when": "view == machinesView && viewItem == machine",
+          "group": "inline"
+        },
+        {
+          "command": "virtual-client.openExtensionLogFile",
+          "when": "view == virtualClientView && viewItem == scheduledRun",
+          "group": "navigation@2",
+          "title": "View Run Log"
+        },
+        {
+          "command": "virtual-client.removeScheduledRun",
+          "when": "view == virtualClientView && viewItem == scheduledRun",
+          "group": "inline",
+          "title": "Remove"
+        },
+        {
+          "command": "virtual-client.summarizeLogs",
+          "when": "view == virtualClientView && viewItem == scheduledRun",
+          "group": "navigation@3",
+          "title": "Summarize Logs with AI"
+        },
+        {
+          "command": "vscode-vc.installVCCertificates",
+          "when": "view == machinesView && viewItem == machine",
+          "group": "inline",
+          "title": "Install VC Certificates"
+        }
       ],
       "view/title": [
-        {"command": "machines.addMachine", "when": "view == machinesView", "group": "navigation@1"},
-        {"command": "virtual-client.runVirtualClientWebview", "when": "view == virtualClientView", "group": "navigation@1"},
-        {"command": "virtual-client.removeAllScheduledRuns", "when": "view == virtualClientView", "group": "navigation@2", "title": "Remove All"},
-        {"command": "virtual-client.refreshMachineStatus", "when": "view == machinesView", "group": "navigation@2", "icon": "$(refresh)"}
+        {
+          "command": "machines.addMachine",
+          "when": "view == machinesView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "virtual-client.runVirtualClientWebview",
+          "when": "view == virtualClientView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "virtual-client.clearScheduledRuns",
+          "when": "view == virtualClientView",
+          "group": "navigation@2",
+          "title": "Clear All"
+        },
+        {
+          "command": "virtual-client.refreshMachineStatus",
+          "when": "view == machinesView",
+          "group": "navigation@2",
+          "icon": "$(refresh)"
+        }
       ]
     },
     "configuration": {
@@ -81,7 +203,12 @@
       "properties": {
         "virtualClient.loggerLogLevel": {
           "type": "string",
-          "enum": ["debug", "info", "warn", "error"],
+          "enum": [
+            "debug",
+            "info",
+            "warn",
+            "error"
+          ],
           "default": "debug",
           "description": "Log level for the VSCode-VC extension's internal logger. Set to 'debug' for verbose logs."
         },
@@ -93,12 +220,20 @@
       }
     }
   },
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false
+    }
+  },
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src",
+    "lint:fix": "eslint src --fix",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\"",
     "test": "node ./out/test/runTest.js",
     "clean": "rmdir /s/q out",
     "docker:build": "docker build -t virtual-client .",
@@ -111,13 +246,14 @@
     "@types/node": "^20.0.0",
     "@types/unzipper": "^0.10.11",
     "@types/uuid": "^10.0.0",
-    "@types/vscode": "^1.74.0",
+    "@types/vscode": "^1.96.0",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
     "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^3.6.0",
     "eslint": "^8.0.0",
     "mocha": "^11.1.0",
+    "prettier": "^3.6.2",
     "typescript": "^5.0.0"
   },
   "dependencies": {

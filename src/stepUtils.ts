@@ -9,8 +9,8 @@ import type { Logger } from './types';
  * Update step status and refresh provider
  */
 export function updateStepStatus(
-    step: ScheduledRunStep, 
-    status: StepStatus, 
+    step: ScheduledRunStep,
+    status: StepStatus,
     detail?: string,
     provider?: ScheduledRunsProvider
 ): void {
@@ -63,10 +63,10 @@ export function markSubstepAsError(
 ): void {
     const errorMessage = error instanceof Error ? error.message : error;
     updateSubstepStatus(parentStep, substepIndex, 'error', errorMessage, provider);
-    
+
     // Also mark parent as error
     updateStepStatus(parentStep, 'error', errorMessage, provider);
-    
+
     logger?.error(`Substep ${substepIndex} failed: ${errorMessage}`);
 }
 
@@ -77,9 +77,7 @@ export function areAllSubstepsComplete(step: ScheduledRunStep): boolean {
     if (!step.substeps || step.substeps.length === 0) {
         return true;
     }
-    return step.substeps.every(substep => 
-        substep.status === 'success' || substep.status === 'error'
-    );
+    return step.substeps.every(substep => substep.status === 'success' || substep.status === 'error');
 }
 
 /**
@@ -95,10 +93,7 @@ export function allSubstepsSucceeded(step: ScheduledRunStep): boolean {
 /**
  * Update parent step status based on substep completion
  */
-export function updateParentStepIfComplete(
-    parentStep: ScheduledRunStep,
-    provider?: ScheduledRunsProvider
-): void {
+export function updateParentStepIfComplete(parentStep: ScheduledRunStep, provider?: ScheduledRunsProvider): void {
     if (areAllSubstepsComplete(parentStep)) {
         const newStatus: StepStatus = allSubstepsSucceeded(parentStep) ? 'success' : 'error';
         updateStepStatus(parentStep, newStatus, undefined, provider);
@@ -112,11 +107,11 @@ export function createRunSteps(): ScheduledRunStep[] {
     return [
         new ScheduledRunStep('Setup Machine', 'pending', undefined, [
             new ScheduledRunStep('Create Remote Directory', 'pending'),
-            new ScheduledRunStep('Upload Package', 'pending')
+            new ScheduledRunStep('Upload Package', 'pending'),
         ]),
         new ScheduledRunStep('Run Virtual Client', 'pending', undefined, [
             new ScheduledRunStep('Verify Virtual Client Tool', 'pending'),
-            new ScheduledRunStep('Execute Virtual Client Command', 'pending')
-        ])
+            new ScheduledRunStep('Execute Virtual Client Command', 'pending'),
+        ]),
     ];
 }

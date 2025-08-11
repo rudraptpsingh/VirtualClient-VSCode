@@ -15,9 +15,7 @@ export function isWindowsPlatform(platform: string | undefined | null): boolean 
  * Get platform-appropriate remote path by joining segments
  */
 export function getRemotePath(platform: string, ...segments: string[]): string {
-    return isWindowsPlatform(platform)
-        ? path.win32.join(...segments)
-        : path.posix.join(...segments);
+    return isWindowsPlatform(platform) ? path.win32.join(...segments) : path.posix.join(...segments);
 }
 
 /**
@@ -53,30 +51,32 @@ export function getToolExecutableName(platform: string, baseName: string = 'Virt
  */
 export function parseCommandLineArgs(args: string): Record<string, string | boolean> {
     const found: Record<string, string | boolean> = {};
-    
+
     // Handle --option=value format
     const equalsRegex = /--([\w-]+)=([^\s]+)/g;
     let match;
     while ((match = equalsRegex.exec(args)) !== null) {
         found[match[1]] = match[2];
     }
-    
+
     // Handle --option value format (but skip if already found with equals)
     const spaceRegex = /--([\w-]+)(?!\s*=)\s+([^\s-][^\s]*)/g;
     while ((match = spaceRegex.exec(args)) !== null) {
-        if (!(match[1] in found)) { // Don't override equals format
+        if (!(match[1] in found)) {
+            // Don't override equals format
             found[match[1]] = match[2];
         }
     }
-    
+
     // Handle flags (--option without value)
     const flagRegex = /--([\w-]+)(?![=\s]*[^\s-])/g;
     while ((match = flagRegex.exec(args)) !== null) {
-        if (!(match[1] in found)) { // Don't override previous assignments
+        if (!(match[1] in found)) {
+            // Don't override previous assignments
             found[match[1]] = true;
         }
     }
-    
+
     return found;
 }
 
@@ -90,10 +90,10 @@ export function buildVirtualClientCommand(
 ): string {
     const shQuote = shQuoteFunction || ((str: string) => `"${str}"`);
     let vcCmd = '';
-    
+
     // Helper to parse additionalArgs string into an object
     const additionalArgsObj = additionalArgs ? parseCommandLineArgs(additionalArgs) : {};
-      // Helper to add argument if not overridden by additionalArgs
+    // Helper to add argument if not overridden by additionalArgs
     function addArg(cliKey: string, value: any, isFlag = false) {
         if (cliKey in additionalArgsObj) {
             return; // overridden
@@ -125,11 +125,25 @@ export function buildVirtualClientCommand(
     addArg('log-level', formData.logLevel);
     addArg('fail-fast', formData.failFast, true);
     addArg('log-to-file', formData.logToFile, true);
-    
-    // Handle clean targets specially
+
+    addArg('content-store', formData.contentStore);
+    addArg('content-path', formData.contentPath);
+    addArg('layout-path', formData.layoutPath);
+    addArg('package-dir', formData.packageDir);
+    addArg('state-dir', formData.stateDir);
+    addArg('log-dir', formData.logDir);
+    addArg('log-retention', formData.logRetention);
+    addArg('seed', formData.seed);
+    addArg('scenarios', formData.scenarios);
+    addArg('logger', formData.logger);
+    addArg('wait', formData.wait);
+
     if (!('clean' in additionalArgsObj)) {
-        if (Array.isArray(formData.clean_targets) && formData.clean_targets.length > 0) {
-            // If 'all' is selected, use --clean (no value)
+        if (formData.clean === true) {
+            vcCmd += ' --clean';
+        } else if (typeof formData.clean === 'string' && formData.clean.trim() !== '') {
+            vcCmd += ' --clean=' + formData.clean;
+        } else if (Array.isArray(formData.clean_targets) && formData.clean_targets.length > 0) {
             if (formData.clean_targets.includes('all')) {
                 vcCmd += ' --clean';
             } else {
@@ -137,13 +151,13 @@ export function buildVirtualClientCommand(
             }
         }
     }
-    
+
     addArg('debug', formData.debug, true);
-    
+
     // Now append additionalArgs (as-is, after all form fields)
     if (additionalArgs && additionalArgs.trim()) {
         vcCmd += ' ' + additionalArgs.trim();
     }
-    
+
     return vcCmd;
 }

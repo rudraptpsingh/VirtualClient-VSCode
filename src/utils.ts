@@ -35,7 +35,9 @@ export function sanitizeLabel(label: string): string {
 export async function sftpMkdirRecursive(sftp: any, remotePath: string, logger?: any): Promise<string> {
     // Normalize to POSIX path, remove trailing slash
     let normPath = remotePath.replace(/\\/g, '/').replace(/\/+$/, '');
-    if (normPath === '~') { return '.'; }
+    if (normPath === '~') {
+        return '.';
+    }
     // Determine SFTP root (usually user's home dir)
     let sftpRoot = '/';
     try {
@@ -140,13 +142,16 @@ export async function extractZip(zipPath: string, extractTo: string): Promise<vo
  * @param credentials The credentials for SSH.
  * @returns The detected platform string or empty string if detection fails.
  */
-export async function detectRemotePlatform(ip: string, credentials: { username: string; password?: string }): Promise<string> {
+export async function detectRemotePlatform(
+    ip: string,
+    credentials: { username: string; password?: string }
+): Promise<string> {
     const { username, password = '' } = credentials;
     if (!ip || !username) {
         return '';
     }
     const conn = new ssh2.Client();
-    return new Promise<string>((resolve) => {
+    return new Promise<string>(resolve => {
         conn.on('ready', () => {
             conn.exec('uname -s && uname -m || (ver & echo %PROCESSOR_ARCHITECTURE%)', (err, stream) => {
                 if (err) {
@@ -155,29 +160,41 @@ export async function detectRemotePlatform(ip: string, credentials: { username: 
                     return;
                 }
                 let output = '';
-                stream.on('data', (data: Buffer) => { output += data.toString(); });
+                stream.on('data', (data: Buffer) => {
+                    output += data.toString();
+                });
                 stream.on('close', () => {
                     conn.end();
                     let platform = '';
                     if (/Linux/i.test(output)) {
-                        if (/aarch64|arm64/i.test(output)) { platform = 'linux-arm64'; }
-                        else if (/x86_64/i.test(output)) { platform = 'linux-x64'; }
+                        if (/aarch64|arm64/i.test(output)) {
+                            platform = 'linux-arm64';
+                        } else if (/x86_64/i.test(output)) {
+                            platform = 'linux-x64';
+                        }
                     } else if (/Windows/i.test(output) || /Microsoft Windows/i.test(output)) {
-                        if (/ARM64/i.test(output)) { platform = 'win-arm64'; }
-                        else if (/AMD64/i.test(output)) { platform = 'win-x64'; }
+                        if (/ARM64/i.test(output)) {
+                            platform = 'win-arm64';
+                        } else if (/AMD64/i.test(output)) {
+                            platform = 'win-x64';
+                        }
                     }
                     resolve(platform);
                 });
             });
         });
-        conn.on('error', () => { resolve(''); });
-        conn.on('timeout', () => { resolve(''); });
+        conn.on('error', () => {
+            resolve('');
+        });
+        conn.on('timeout', () => {
+            resolve('');
+        });
         try {
             conn.connect({
                 host: ip,
                 username,
                 password,
-                readyTimeout: 7000
+                readyTimeout: 7000,
             });
         } catch {
             resolve('');

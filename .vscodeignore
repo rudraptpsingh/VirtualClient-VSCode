@@ -9,3 +9,12 @@ vsc-extension-quickstart.md
 **/*.map
 **/*.ts
 **/.vscode-test.*
+.github/**
+demo/**
+**/*.mp4
+virtual-client-*.vsix
+virtual-client.tar
+.env
+.env.*
+.env.example
+**/*.log

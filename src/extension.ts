@@ -10,7 +10,11 @@ import * as ssh2 from 'ssh2';
 import * as unzipper from 'unzipper';
 
 // Local files
-import { getAddMachineWebviewContent, getRunVirtualClientWebviewContent, showRunDetailsWebview } from './webviewContent';
+import {
+    getAddMachineWebviewContent,
+    getRunVirtualClientWebviewContent,
+    showRunDetailsWebview,
+} from './webviewContent';
 import { handleSummarizeLogs } from './commandHandlers';
 import { VirtualClientTreeViewProvider } from './VirtualClientTreeViewProvider';
 import { MachineCredentials } from './types';
@@ -18,19 +22,19 @@ import { ScheduledRunsProvider, ScheduledRunItem, ScheduledRunStep } from './Sch
 import { MachinesProvider, MachineItem } from './machinesProvider';
 import { TemplateManager } from './templateManager';
 import { getEnhancedRunVirtualClientWebviewContent } from './templateWebview';
-import { 
-    shQuote, 
-    sanitizeLabel, 
-    sftpMkdirRecursive, 
-    sftpDownloadFile, 
+import {
+    shQuote,
+    sanitizeLabel,
+    sftpMkdirRecursive,
+    sftpDownloadFile,
     detectRemotePlatform,
-    extractZip
+    extractZip,
 } from './utils';
 
 // Utility imports
-import { 
-    LOGS_DIR_NAME, 
-    LOG_FILE_EXTENSION, 
+import {
+    LOGS_DIR_NAME,
+    LOG_FILE_EXTENSION,
     JSON_FILE_EXTENSION,
     REMOVE_ALL_LABEL,
     REMOVE_LABEL,
@@ -41,56 +45,50 @@ import {
     UNKNOWN_LABEL,
     UNKNOWN_IP,
     WINDOWS_DEFAULT_REMOTE_DIR,
-    LINUX_DEFAULT_REMOTE_DIR
+    LINUX_DEFAULT_REMOTE_DIR,
 } from './constants';
-import { 
-    buildVirtualClientCommand
-} from './platformUtils';
+import { buildVirtualClientCommand } from './platformUtils';
 
-import { 
+import {
     updateStepStatus,
     updateSubstepStatus,
     markStepAsError,
     markSubstepAsError,
     updateParentStepIfComplete,
-    createRunSteps
+    createRunSteps,
 } from './stepUtils';
-import { 
+import {
     checkFileExists,
     validateFileExists,
     openFileInEditor,
     ensureDirectoryExistsWithLogging,
     deletePathRecursively,
     createSafeFileName,
-    validatePackagePath
+    validatePackagePath,
 } from './fileUtils';
-import { 
+import {
     isTestEnvironment,
     showConfirmationDialog,
     showErrorMessage,
     formatErrorMessage,
-    getExtensionConfig
+    getExtensionConfig,
 } from './envUtils';
-import { 
+import {
     executeSSHCommand,
     executeSSHCommandWithStreaming,
     setupSSHConnection,
     setupSFTP,
-    checkRemoteFileExists
+    checkRemoteFileExists,
 } from './sshUtils';
-import { 
-    createRunLogger,
-    renderProgressBar,
-    logUploadProgress
-} from './loggingUtils';
-import { 
+import { createRunLogger, renderProgressBar, logUploadProgress } from './loggingUtils';
+import {
     extractRunLabel,
     generateRunId,
     createTimestampedFilename,
     saveLastRunParameters,
     loadLastRunParameters,
     saveScheduledRunToDisk,
-    getLogFilePath
+    getLogFilePath,
 } from './runUtils';
 import {
     createArchiveCommand,
@@ -98,7 +96,7 @@ import {
     downloadAndExtractLogs,
     cleanupRemoteArchive,
     getRemoteArchivePaths,
-    transferLogs
+    transferLogs,
 } from './archiveUtils';
 import { buildLogFileTree } from './logTreeUtils';
 
@@ -115,7 +113,7 @@ interface ResourceManager {
     sftp?: ssh2.SFTPWrapper;
     readStream?: fs.ReadStream;
     writeStream?: fs.WriteStream;
-    
+
     cleanup(): void;
 }
 
@@ -128,19 +126,27 @@ class RunResourceManager implements ResourceManager {
 
     cleanup(): void {
         if (this.readStream) {
-            try { this.readStream.destroy(); } catch {}
+            try {
+                this.readStream.destroy();
+            } catch {}
             this.readStream = undefined;
         }
         if (this.writeStream) {
-            try { this.writeStream.destroy(); } catch {}
+            try {
+                this.writeStream.destroy();
+            } catch {}
             this.writeStream = undefined;
         }
         if (this.sftp) {
-            try { this.sftp.end(); } catch {}
+            try {
+                this.sftp.end();
+            } catch {}
             this.sftp = undefined;
         }
         if (this.conn) {
-            try { this.conn.end(); } catch {}
+            try {
+                this.conn.end();
+            } catch {}
             this.conn = undefined;
         }
         if (this.panel) {
@@ -175,19 +181,25 @@ export async function loadScheduledRuns(context: vscode.ExtensionContext): Promi
     try {
         const logsDir = path.join(context.globalStorageUri.fsPath, LOGS_DIR_NAME);
         const files = (await fsPromises.readdir(logsDir)).filter(f => f.endsWith(JSON_FILE_EXTENSION));
-        const runsData = await Promise.all(files.map(async f => {
-            const filePath = path.join(logsDir, f);
-            try {
-                const content = await fsPromises.readFile(filePath, 'utf-8');
-                return JSON.parse(content);
-            } catch (error) {
-                vscode.window.showWarningMessage(`Failed to read or parse scheduled run file ${filePath}: ${error instanceof Error ? error.message : error}`);
-                return null;
-            }
-        }));
+        const runsData = await Promise.all(
+            files.map(async f => {
+                const filePath = path.join(logsDir, f);
+                try {
+                    const content = await fsPromises.readFile(filePath, 'utf-8');
+                    return JSON.parse(content);
+                } catch (error) {
+                    vscode.window.showWarningMessage(
+                        `Failed to read or parse scheduled run file ${filePath}: ${error instanceof Error ? error.message : error}`
+                    );
+                    return null;
+                }
+            })
+        );
         return runsData.filter(run => run !== null);
     } catch (error) {
-        vscode.window.showWarningMessage('Failed to load scheduled runs: ' + (error instanceof Error ? error.message : error));
+        vscode.window.showWarningMessage(
+            'Failed to load scheduled runs: ' + (error instanceof Error ? error.message : error)
+        );
         return [];
     }
 }
@@ -214,12 +226,17 @@ export async function clearLogsFolder(context: vscode.ExtensionContext): Promise
             try {
                 await fsPromises.unlink(path.join(logsDir, f));
             } catch (unlinkError) {
-                vscode.window.showWarningMessage(`Failed to delete log file ${f}: ${unlinkError instanceof Error ? unlinkError.message : unlinkError}`);
+                vscode.window.showWarningMessage(
+                    `Failed to delete log file ${f}: ${unlinkError instanceof Error ? unlinkError.message : unlinkError}`
+                );
             }
         }
         vscode.window.showInformationMessage('Scheduled run history files cleared from logs directory.');
     } catch (error) {
-        vscode.window.showInformationMessage('Log folder for scheduled runs either does not exist or could not be cleared: ' + (error instanceof Error ? error.message : error));
+        vscode.window.showInformationMessage(
+            'Log folder for scheduled runs either does not exist or could not be cleared: ' +
+                (error instanceof Error ? error.message : error)
+        );
     }
 }
 
@@ -234,18 +251,23 @@ let defaultRemoteTargetDir: string | undefined;
  * Activates the extension, registers providers and commands, and initializes state.
  * @param context The extension context.
  */
-export async function activate(context: vscode.ExtensionContext) {    try {        // Initialize providers
+export async function activate(context: vscode.ExtensionContext) {
+    try {
+        // Initialize providers
         scheduledRunsProvider = new ScheduledRunsProvider(context);
         machinesProvider = new MachinesProvider(context);
         templateManager = new TemplateManager(context);
-        
+
         // Initialize template manager
         await templateManager.initialize();
-        
+
         // Load any existing scheduled runs
         const existingRuns = await loadScheduledRuns(context);
         for (const run of existingRuns) {
-            const steps = run.steps.map((step: { label: string, status: 'pending' | 'running' | 'success' | 'error', detail?: string }) => new ScheduledRunStep(step.label, step.status, step.detail));
+            const steps = run.steps.map(
+                (step: { label: string; status: 'pending' | 'running' | 'success' | 'error'; detail?: string }) =>
+                    new ScheduledRunStep(step.label, step.status, step.detail)
+            );
             scheduledRunsProvider.addRun(
                 run.machineIp,
                 run.packagePath,
@@ -274,7 +296,7 @@ export async function activate(context: vscode.ExtensionContext) {    try {     
                 run.timestamp ? new Date(run.timestamp) : undefined
             );
         }
-        
+
         // Initialize tree view provider after machines provider
         treeViewProvider = new VirtualClientTreeViewProvider(context, [], scheduledRunsProvider);
 
@@ -285,9 +307,15 @@ export async function activate(context: vscode.ExtensionContext) {    try {     
         // Register commands
         const disposables = [
             vscode.commands.registerCommand('machines.addMachine', () => handleAddMachine(context, machinesProvider)),
-            vscode.commands.registerCommand('virtual-client.runVirtualClientWebview', () => handleRunVirtualClient(context)),
-            vscode.commands.registerCommand('virtual-client.showRunDetails', (runItem: ScheduledRunItem) => handleShowRunDetails(context, runItem)),
-            vscode.commands.registerCommand('machines.deleteMachine', (item: MachineItem) => handleDeleteMachine(context, item)),
+            vscode.commands.registerCommand('virtual-client.runVirtualClientWebview', () =>
+                handleRunVirtualClient(context)
+            ),
+            vscode.commands.registerCommand('virtual-client.showRunDetails', (runItem: ScheduledRunItem) =>
+                handleShowRunDetails(context, runItem)
+            ),
+            vscode.commands.registerCommand('machines.deleteMachine', (item: MachineItem) =>
+                handleDeleteMachine(context, item)
+            ),
             vscode.commands.registerCommand('virtual-client.streamLogs', async (item: ScheduledRunItem) => {
                 if (item) {
                     await handleStreamLogs(context, item, scheduledRunsProvider);
@@ -298,19 +326,25 @@ export async function activate(context: vscode.ExtensionContext) {    try {     
                     await handleRerun(context, item);
                 }
             }),
-            vscode.commands.registerCommand('virtual-client.showLogFiles', () => handleShowLogFiles(context)),            vscode.commands.registerCommand('virtual-client.openLogFile', async (stepOrRun: any) => {
+            vscode.commands.registerCommand('virtual-client.showLogFiles', () => handleShowLogFiles(context)),
+            vscode.commands.registerCommand('virtual-client.openLogFile', async (stepOrRun: any) => {
                 const runLabel = extractRunLabel(stepOrRun);
                 if (!runLabel) {
                     vscode.window.showErrorMessage('Could not determine run label for log file.');
                     return;
                 }
-                
+
                 // If opening a specific log file
                 let logFileName = '';
-                if (stepOrRun && stepOrRun.label && typeof stepOrRun.label === 'string' && stepOrRun.label.startsWith(LOG_LABEL_PREFIX)) {
+                if (
+                    stepOrRun &&
+                    stepOrRun.label &&
+                    typeof stepOrRun.label === 'string' &&
+                    stepOrRun.label.startsWith(LOG_LABEL_PREFIX)
+                ) {
                     logFileName = stepOrRun.label.substring(LOG_LABEL_PREFIX.length);
                 }
-                
+
                 const logFilePath = getLogFilePath(context, runLabel, logFileName);
                 if (stepOrRun.relativePath && logFileName) {
                     // Use relative path if present
@@ -328,59 +362,61 @@ export async function activate(context: vscode.ExtensionContext) {    try {     
                     delete runConnections[runLabel];
                 }
                 vscode.window.showInformationMessage(`Cancelled run: ${runLabel}`);
-            }),            // New command to clear all scheduled runs and logs
-            vscode.commands.registerCommand('virtual-client.removeAllScheduledRuns', async () => {
+            }),
+            vscode.commands.registerCommand('virtual-client.clearScheduledRuns', async () => {
                 const confirm = await showConfirmationDialog(
                     'Are you sure you want to remove all scheduled runs and logs? This cannot be undone.',
                     REMOVE_ALL_LABEL
                 );
-                
+
                 if (confirm === REMOVE_ALL_LABEL) {
-                    // Clear runs from provider using a method if available, otherwise reset and update
+                    // Clear runs from provider
                     if (scheduledRunsProvider) {
-                        if (typeof scheduledRunsProvider.clear === 'function') {
-                            scheduledRunsProvider.clear();
-                        } else if ((scheduledRunsProvider as any).runs) {
-                            (scheduledRunsProvider as any).runs.length = 0;
-                            scheduledRunsProvider.update();
-                        }
+                        scheduledRunsProvider.clear();
                     }
                     // Refresh the tree view if available
                     if (treeViewProvider && typeof treeViewProvider.refresh === 'function') {
                         treeViewProvider.refresh();
                     }
-                    
+
                     let failedDeletes: string[] = [];
                     // Delete all log files and subdirectories from logs directory only
                     const logsDir = path.join(context.globalStorageUri.fsPath, LOGS_DIR_NAME);
                     await deletePathRecursively(logsDir, failedDeletes);
                     if (failedDeletes.length > 0) {
-                        vscode.window.showWarningMessage('Some log files or directories could not be deleted: ' + failedDeletes.join(', '));
+                        vscode.window.showWarningMessage(
+                            'Some log files or directories could not be deleted: ' + failedDeletes.join(', ')
+                        );
                     }
                     vscode.window.showInformationMessage('All scheduled runs and logs have been cleared.');
                 }
-            }),            vscode.commands.registerCommand('virtual-client.openExtensionLogFile', async (runItem: ScheduledRunItem) => {
-                if (!runItem || !runItem.label) {
-                    vscode.window.showErrorMessage('Could not determine run label for extension log file.');
-                    return;
+            }),
+            vscode.commands.registerCommand(
+                'virtual-client.openExtensionLogFile',
+                async (runItem: ScheduledRunItem) => {
+                    if (!runItem || !runItem.label) {
+                        vscode.window.showErrorMessage('Could not determine run label for extension log file.');
+                        return;
+                    }
+                    const logFilePath = getLogFilePath(context, runItem.label);
+                    await openFileInEditor(logFilePath);
                 }
-                const logFilePath = getLogFilePath(context, runItem.label);
-                await openFileInEditor(logFilePath);
-            }),            vscode.commands.registerCommand('virtual-client.downloadLogsZip', async (step: any) => {
+            ),
+            vscode.commands.registerCommand('virtual-client.downloadLogsZip', async (step: any) => {
                 // Find the run label
                 const runLabel = extractRunLabel(step);
                 if (!runLabel) {
                     vscode.window.showErrorMessage('Could not determine run label for logs archive download.');
                     return;
                 }
-                
+
                 const logsDir = path.join(context.globalStorageUri.fsPath, LOGS_DIR_NAME, sanitizeLabel(runLabel));
                 const zipPath = path.join(logsDir, LOGS_ZIP);
                 const tarPath = path.join(logsDir, LOGS_TAR);
-                
+
                 let archivePath = '';
                 let archiveType = '';
-                
+
                 if (await checkFileExists(zipPath)) {
                     archivePath = zipPath;
                     archiveType = 'zip';
@@ -388,16 +424,20 @@ export async function activate(context: vscode.ExtensionContext) {    try {     
                     archivePath = tarPath;
                     archiveType = 'tar.gz';
                 } else {
-                    vscode.window.showErrorMessage(`Neither ${LOGS_ZIP} nor ${LOGS_TAR} found or accessible in: ${logsDir}`);
+                    vscode.window.showErrorMessage(
+                        `Neither ${LOGS_ZIP} nor ${LOGS_TAR} found or accessible in: ${logsDir}`
+                    );
                     return;
                 }
-                
+
                 const defaultFileName = archiveType === 'zip' ? LOGS_ZIP : LOGS_TAR;
                 const uri = await vscode.window.showSaveDialog({
                     defaultUri: vscode.Uri.file(path.join(os.homedir(), defaultFileName)),
-                    saveLabel: `Save logs.${archiveType} as...`
+                    saveLabel: `Save logs.${archiveType} as...`,
                 });
-                if (!uri) { return; }
+                if (!uri) {
+                    return;
+                }
                 await fsPromises.copyFile(archivePath, uri.fsPath);
                 vscode.window.showInformationMessage(`logs.${archiveType} saved to ${uri.fsPath}`);
             }),
@@ -408,22 +448,24 @@ export async function activate(context: vscode.ExtensionContext) {    try {     
                 } else {
                     vscode.window.showWarningMessage('Machines provider not available.');
                 }
-            }),            vscode.commands.registerCommand('virtual-client.removeScheduledRun', async (item: ScheduledRunItem) => {
+            }),
+            vscode.commands.registerCommand('virtual-client.removeScheduledRun', async (item: ScheduledRunItem) => {
                 if (!item || !item.runId) {
                     vscode.window.showErrorMessage('Could not determine run to remove.');
                     return;
                 }
-                
+
                 const confirm = await showConfirmationDialog(
                     `Are you sure you want to remove the scheduled run for ${item.label}?`,
                     REMOVE_LABEL
                 );
-                
+
                 if (confirm === REMOVE_LABEL) {
                     scheduledRunsProvider.removeRun(item.runId);
                     vscode.window.showInformationMessage(`Scheduled run for ${item.label} has been removed.`);
-                }            }),
-            
+                }
+            }),
+
             // Template management commands
             vscode.commands.registerCommand('virtual-client.saveTemplate', async (templateData: any) => {
                 try {
@@ -437,10 +479,12 @@ export async function activate(context: vscode.ExtensionContext) {    try {     
                     vscode.window.showInformationMessage(`Template "${template.name}" saved successfully.`);
                     return template;
                 } catch (error) {
-                    vscode.window.showErrorMessage(`Failed to save template: ${error instanceof Error ? error.message : error}`);
+                    vscode.window.showErrorMessage(
+                        `Failed to save template: ${error instanceof Error ? error.message : error}`
+                    );
                 }
             }),
-            
+
             vscode.commands.registerCommand('virtual-client.loadTemplate', async (templateId: string) => {
                 try {
                     const template = await templateManager.loadTemplate(templateId);
@@ -450,10 +494,12 @@ export async function activate(context: vscode.ExtensionContext) {    try {     
                         vscode.window.showErrorMessage('Template not found.');
                     }
                 } catch (error) {
-                    vscode.window.showErrorMessage(`Failed to load template: ${error instanceof Error ? error.message : error}`);
+                    vscode.window.showErrorMessage(
+                        `Failed to load template: ${error instanceof Error ? error.message : error}`
+                    );
                 }
             }),
-              vscode.commands.registerCommand('virtual-client.deleteTemplate', async (templateId: string) => {
+            vscode.commands.registerCommand('virtual-client.deleteTemplate', async (templateId: string) => {
                 try {
                     const success = await templateManager.deleteTemplate(templateId);
                     if (success) {
@@ -462,9 +508,12 @@ export async function activate(context: vscode.ExtensionContext) {    try {     
                         vscode.window.showWarningMessage('Template not found or could not be deleted.');
                     }
                 } catch (error) {
-                    vscode.window.showErrorMessage(`Failed to delete template: ${error instanceof Error ? error.message : error}`);
-                }}),
-            
+                    vscode.window.showErrorMessage(
+                        `Failed to delete template: ${error instanceof Error ? error.message : error}`
+                    );
+                }
+            }),
+
             vscode.commands.registerCommand('virtual-client.exportTemplates', async () => {
                 try {
                     const allTemplates = templateManager.getAllTemplates();
@@ -472,25 +521,27 @@ export async function activate(context: vscode.ExtensionContext) {    try {     
                         vscode.window.showInformationMessage('No templates available to export.');
                         return;
                     }
-                    
+
                     const uri = await vscode.window.showSaveDialog({
                         defaultUri: vscode.Uri.file(path.join(os.homedir(), 'vc-templates.json')),
                         saveLabel: 'Export Templates',
                         filters: {
-                            'JSON Files': ['json']
-                        }
+                            'JSON Files': ['json'],
+                        },
                     });
-                    
+
                     if (uri) {
                         const templateIds = allTemplates.map(t => t.id);
                         await templateManager.exportTemplates(templateIds, uri.fsPath);
                         vscode.window.showInformationMessage(`Templates exported to ${uri.fsPath}`);
                     }
                 } catch (error) {
-                    vscode.window.showErrorMessage(`Failed to export templates: ${error instanceof Error ? error.message : error}`);
+                    vscode.window.showErrorMessage(
+                        `Failed to export templates: ${error instanceof Error ? error.message : error}`
+                    );
                 }
             }),
-              vscode.commands.registerCommand('virtual-client.importTemplates', async () => {
+            vscode.commands.registerCommand('virtual-client.importTemplates', async () => {
                 try {
                     const uri = await vscode.window.showOpenDialog({
                         canSelectFiles: true,
@@ -498,16 +549,18 @@ export async function activate(context: vscode.ExtensionContext) {    try {     
                         canSelectMany: false,
                         openLabel: 'Import Templates',
                         filters: {
-                            'JSON Files': ['json']
-                        }
+                            'JSON Files': ['json'],
+                        },
                     });
-                    
+
                     if (uri && uri[0]) {
                         const imported = await templateManager.importTemplates(uri[0].fsPath);
                         vscode.window.showInformationMessage(`Imported ${imported} template(s) successfully.`);
                     }
                 } catch (error) {
-                    vscode.window.showErrorMessage(`Failed to import templates: ${error instanceof Error ? error.message : error}`);
+                    vscode.window.showErrorMessage(
+                        `Failed to import templates: ${error instanceof Error ? error.message : error}`
+                    );
                 }
             }),
 
@@ -524,14 +577,18 @@ export async function activate(context: vscode.ExtensionContext) {    try {     
 
         // Disable telemetry
         const telemetryConfig = vscode.workspace.getConfiguration('telemetry');
-        telemetryConfig.update('enableTelemetry', false, vscode.ConfigurationTarget.Global);        // Load default remote target dir from globalState (if user has set a custom default)
+        telemetryConfig.update('enableTelemetry', false, vscode.ConfigurationTarget.Global);
+
+        // Load default remote target dir from globalState (if user has set a custom default)
         const userDefault = context.globalState.get<string>('defaultRemoteTargetDir');
         if (userDefault) {
             defaultRemoteTargetDir = userDefault;
         } else {
             // Don't set a global default - always determine dynamically based on target machine platform
             defaultRemoteTargetDir = undefined;
-        }        // Check if user wants to auto-refresh machine status on extension load
+        }
+
+        // Check if user wants to auto-refresh machine status on extension load
         const autoRefreshEnabled = getExtensionConfig('virtualClient', 'refreshMachineStatusOnLoad', true);
         if (autoRefreshEnabled && machinesProvider) {
             // Run refresh in background without blocking extension activation
@@ -544,7 +601,9 @@ export async function activate(context: vscode.ExtensionContext) {    try {     
         // Extension activation completed successfully
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
-        vscode.window.showErrorMessage('Failed to activate Virtual Client extension. Please check the logs for details.');
+        vscode.window.showErrorMessage(
+            'Failed to activate Virtual Client extension. Please check the logs for details.'
+        );
         throw new Error(`Extension activation failed: ${errorMessage}`);
     }
 }
@@ -559,13 +618,10 @@ export function deactivate() {
 // Command handlers
 async function handleAddMachine(context: vscode.ExtensionContext, machinesProvider: MachinesProvider) {
     const resources = new RunResourceManager();
-    
-    resources.panel = vscode.window.createWebviewPanel(
-        'addMachine',
-        'Add New Machine',
-        vscode.ViewColumn.One,
-        { enableScripts: true }
-    );
+
+    resources.panel = vscode.window.createWebviewPanel('addMachine', 'Add New Machine', vscode.ViewColumn.One, {
+        enableScripts: true,
+    });
 
     resources.panel.webview.html = getAddMachineWebviewContent();
 
@@ -576,14 +632,16 @@ async function handleAddMachine(context: vscode.ExtensionContext, machinesProvid
                 if (message.command === 'add') {
                     const { label, ip, username, password, platform } = message;
                     if (!label || !ip || !username || !password || !platform) {
-                        vscode.window.showErrorMessage('All fields, including platform, are required to add a machine.');
+                        vscode.window.showErrorMessage(
+                            'All fields, including platform, are required to add a machine.'
+                        );
                         return;
                     }
                     // Save the machine with the user-selected platform
                     await machinesProvider.addMachine(label, ip, username, password, platform);
                     // Also update the global state for this machine with the platform
                     let machines = context.globalState.get<any[]>('machines', []);
-                    machines = machines.map((m: MachineItem) => m.ip === ip ? { ...m, platform } : m);
+                    machines = machines.map((m: MachineItem) => (m.ip === ip ? { ...m, platform } : m));
                     await context.globalState.update('machines', machines);
                     await machinesProvider.refreshConnectionStatusForMachine(ip); // Only refresh the new machine
                     resources.panel?.dispose();
@@ -603,7 +661,9 @@ async function handleAddMachine(context: vscode.ExtensionContext, machinesProvid
                     }
                 }
             } catch (error) {
-                vscode.window.showErrorMessage(`Failed to add machine: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                vscode.window.showErrorMessage(
+                    `Failed to add machine: ${error instanceof Error ? error.message : 'Unknown error'}`
+                );
             }
         },
         undefined,
@@ -618,13 +678,14 @@ async function handleAddMachine(context: vscode.ExtensionContext, machinesProvid
 
 export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
     const resources = new RunResourceManager();
-    
+
     // Get all machines from the provider
-    const machines = await machinesProvider.getChildren();    const machineItems = machines.map((m: MachineItem) => ({
+    const machines = await machinesProvider.getChildren();
+    const machineItems = machines.map((m: MachineItem) => ({
         label: m.label,
-        ip: m.ip
+        ip: m.ip,
     }));
-    
+
     // Load last parameters
     const lastParameters = await loadLastRunParameters(context);
 
@@ -632,7 +693,7 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
     const webviewSteps = steps.map(step => ({
         label: step.label as string,
         status: step.status,
-        detail: step.detail
+        detail: step.detail,
     }));
 
     resources.panel = vscode.window.createWebviewPanel(
@@ -642,12 +703,19 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
         {
             enableScripts: true,
             localResourceRoots: [vscode.Uri.file(path.join(context.extensionPath, 'media'))],
-            retainContextWhenHidden: true
-        }    );
-    
+            retainContextWhenHidden: true,
+        }
+    );
+
     // Set content security policy
     const templates = templateManager.getAllTemplates();
-    resources.panel.webview.html = getEnhancedRunVirtualClientWebviewContent(machineItems, lastParameters, webviewSteps, resources.panel.webview, templates);
+    resources.panel.webview.html = getEnhancedRunVirtualClientWebviewContent(
+        machineItems,
+        lastParameters,
+        webviewSteps,
+        resources.panel.webview,
+        templates
+    );
 
     resources.panel.webview.onDidReceiveMessage(async (message: any) => {
         if (message.command === 'detectPlatform') {
@@ -670,117 +738,135 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
             }
             return;
         }
-        
+
         // Template handling
         if (message.command === 'getTemplates') {
             const templates = templateManager.getAllTemplates();
-            resources.panel?.webview.postMessage({ 
-                command: 'templatesLoaded', 
-                templates 
+            resources.panel?.webview.postMessage({
+                command: 'templatesLoaded',
+                templates,
             });
             return;
         }
-        
+
         if (message.command === 'loadTemplate') {
             try {
                 const template = await templateManager.loadTemplate(message.templateId);
                 if (template) {
-                    resources.panel?.webview.postMessage({ 
-                        command: 'templateLoaded', 
-                        template 
+                    resources.panel?.webview.postMessage({
+                        command: 'templateLoaded',
+                        template,
                     });
                 }
             } catch (error) {
-                vscode.window.showErrorMessage(`Failed to load template: ${error instanceof Error ? error.message : error}`);
+                vscode.window.showErrorMessage(
+                    `Failed to load template: ${error instanceof Error ? error.message : error}`
+                );
             }
             return;
-        }        if (message.command === 'saveTemplate') {
+        }
+
+        if (message.command === 'saveTemplate') {
             try {
                 const template = await templateManager.saveTemplate(
                     message.templateData.name,
                     message.templateData.description,
-                    message.templateData.parameters,                    message.templateData.category,
+                    message.templateData.parameters,
+                    message.templateData.category,
                     message.templateData.tags
-                );                
+                );
                 // Send updated templates list after saving
                 const templates = templateManager.getAllTemplates();
-                resources.panel?.webview.postMessage({ 
-                    command: 'templateSaved', 
-                    template 
+                resources.panel?.webview.postMessage({
+                    command: 'templateSaved',
+                    template,
                 });
                 resources.panel?.webview.postMessage({
-                    command: 'templatesLoaded',                    templates 
+                    command: 'templatesLoaded',
+                    templates,
                 });
             } catch (error) {
-                vscode.window.showErrorMessage(`Failed to save template: ${error instanceof Error ? error.message : error}`);
+                vscode.window.showErrorMessage(
+                    `Failed to save template: ${error instanceof Error ? error.message : error}`
+                );
             }
-            return;        }
-          if (message.command === 'deleteTemplate') {
+            return;
+        }
+
+        if (message.command === 'deleteTemplate') {
             try {
-                const success = await templateManager.deleteTemplate(message.templateId);                if (success) {
+                const success = await templateManager.deleteTemplate(message.templateId);
+                if (success) {
                     // Send updated templates list after deletion
                     const templates = templateManager.getAllTemplates();
-                    resources.panel?.webview.postMessage({ 
-                        command: 'templateDeleted' 
+                    resources.panel?.webview.postMessage({
+                        command: 'templateDeleted',
                     });
-                    resources.panel?.webview.postMessage({ 
-                        command: 'templatesLoaded', 
-                        templates 
-                    });                    vscode.window.showInformationMessage('Template deleted successfully.');
+                    resources.panel?.webview.postMessage({
+                        command: 'templatesLoaded',
+                        templates,
+                    });
+                    vscode.window.showInformationMessage('Template deleted successfully.');
                 } else {
                     vscode.window.showErrorMessage('Template not found or could not be deleted.');
-                }            } catch (error) {
-                vscode.window.showErrorMessage(`Failed to delete template: ${error instanceof Error ? error.message : error}`);
+                }
+            } catch (error) {
+                vscode.window.showErrorMessage(
+                    `Failed to delete template: ${error instanceof Error ? error.message : error}`
+                );
             }
-            return;}
-        
+            return;
+        }
+
         if (message.command === 'exportTemplates') {
             await vscode.commands.executeCommand('virtual-client.exportTemplates');
             return;
         }
-        
+
         if (message.command === 'importTemplates') {
             await vscode.commands.executeCommand('virtual-client.importTemplates');
             // Refresh templates in webview
             const templates = templateManager.getAllTemplates();
-            resources.panel?.webview.postMessage({ 
-                command: 'templatesLoaded', 
-                templates 
+            resources.panel?.webview.postMessage({
+                command: 'templatesLoaded',
+                templates,
             });
             return;
         }
-          if (message.command === 'showMessage') {
+
+        if (message.command === 'showMessage') {
             vscode.window.showInformationMessage(message.text);
             return;
         }
-        
+
         if (message.command === 'cleanRemotePackages') {
             try {
                 const machine = await machinesProvider.getMachineByIp(message.machineIp);
                 if (!machine) {
                     throw new Error('Machine not found');
                 }
-                
+
                 await handleCleanRemotePackages(context, machine, resources.panel);
             } catch (error) {
                 const errorMessage = error instanceof Error ? error.message : 'Unknown error';
                 resources.panel?.webview.postMessage({
                     command: 'cleanRemotePackagesComplete',
                     success: false,
-                    error: errorMessage
+                    error: errorMessage,
                 });
             }
             return;
         }
-          if (message.command !== 'run') {
+
+        if (message.command !== 'run') {
             return;
         }
-        
+
         // Dispose the webview panel immediately after receiving the run command
         // since the user has submitted their configuration and no longer needs the form
         resources.panel?.dispose();
         resources.panel = undefined;
-        
+
         // --- LOG FILE VARS ---
         let logStream: fs.WriteStream | undefined;
         let outputChannel: vscode.OutputChannel | undefined;
@@ -791,501 +877,741 @@ export async function handleRunVirtualClient(context: vscode.ExtensionContext) {
             if (!machine) {
                 throw new Error('Machine not found');
             }
-            await vscode.window.withProgress({
-                location: vscode.ProgressLocation.Notification,
-                title: `Running Virtual Client on ${machine.label} (${machine.ip})`,
-                cancellable: true
-            }, async (progress, token) => {                if (token) {
-                    token.onCancellationRequested(() => {
-                        if (runItem && runItem.label) {
-                            runCancelFlags[runItem.label] = true;
-                            vscode.window.showWarningMessage('Run cancellation requested.');
-                        }
-                        // Clean up SSH resources only (panel already disposed)
-                        resources.conn?.end();
-                        resources.sftp?.end();
-                        logStream?.end();
-                    });
-                }
-                progress.report({ message: 'Initializing run...' });
-                // Validate user-supplied paths and parameters
-                if (!message.packagePath || typeof message.packagePath !== 'string' || !message.packagePath.trim()) {
-                    vscode.window.showErrorMessage('Local package path is required.');
-                    throw new Error('Local package path is required.');
-                }
-                if (!message.machineIp || typeof message.machineIp !== 'string' || !message.machineIp.trim()) {
-                    vscode.window.showErrorMessage('Machine IP is required.');
-                    throw new Error('Machine IP is required.');                }
-                const platform = machine.requirePlatform();
-                const credentials = await machinesProvider.getMachineCredentials(message.machineIp);
-                if (!credentials) {
-                    throw new Error('Machine credentials not found');
-                }
-                // Set the remote target directory based on the target machine platform
-                let remoteTargetDir: string;
-                if (defaultRemoteTargetDir) {
-                    // User has set a custom default - validate it matches the target platform
-                    if (machine.isWindows) {
-                        // For Windows machines, use user default if it looks like a Windows path, otherwise use Windows default
-                        if (defaultRemoteTargetDir.includes(':') || defaultRemoteTargetDir.includes('\\')) {
-                            remoteTargetDir = defaultRemoteTargetDir;
-                        } else {
-                            remoteTargetDir = WINDOWS_DEFAULT_REMOTE_DIR;
-                        }
-                    } else {
-                        // For Linux machines, use user default if it looks like a POSIX path, otherwise generate Linux default
-                        if (defaultRemoteTargetDir.startsWith('/') && !defaultRemoteTargetDir.includes(':')) {
-                            remoteTargetDir = defaultRemoteTargetDir;
-                        } else {
-                            remoteTargetDir = machine.getDefaultRemoteTargetDir();
-                        }
-                    }                } else {
-                    // No user default - always use machine's default
-                    remoteTargetDir = machine.getDefaultRemoteTargetDir();
-                }
-                
-                // Update global state with last parameters (do not include remoteTargetDir)
-                await saveLastRunParameters(context, message);
-                
-                // Create a new run item
-                const runItem = scheduledRunsProvider.addRun(
-                    machine.ip,
-                    message.packagePath,
-                    platform,
-                    message.profile,
-                    message.system,
-                    message.timeout,
-                    message.exitWait,
-                    message.proxyApi,
-                    message.packageStore,
-                    message.eventHub,
-                    message.experimentId,
-                    message.clientId,
-                    message.metadata,
-                    message.parameters,
-                    message.port,
-                    message.ipAddress,
-                    message.logToFile,
-                    message.clean,
-                    message.debug,
-                    message.dependencies || '',
-                    message.iterations || 1,
-                    message.logLevel || '',
-                    message.failFast || false,
-                    createRunSteps()
-                );
-                
-                // --- LOG FILE SETUP ---
-                const logsDir = path.join(context.globalStorageUri.fsPath, LOGS_DIR_NAME);
-                await ensureDirectoryExistsWithLogging(logsDir);
-                const logLabel = (scheduledRunsProvider as any).getRunLabel
-                    ? (scheduledRunsProvider as any).getRunLabel(runItem.timestamp, runItem.machineIp)
-                    : runItem.label;
-                const logFilePath = path.join(logsDir, `${logLabel}${LOG_FILE_EXTENSION}`);
-                
-                const { logger, outputChannel, logStream } = createRunLogger(runItem.label, logFilePath);
-                logger.info(`Scheduled run started for ${runItem.label}`);
-                // --- END LOG FILE SETUP ---
-                // Register the connection for cancellation
-                runCancelFlags[runItem.label] = false;
-                resources.conn = new ssh2.Client();
-                runConnections[runItem.label] = resources.conn;                resources.conn.on('ready', () => {
-                    if (!resources.conn) {
-                        return;
-                    }
-                    resources.conn.sftp((err: Error | undefined, sftp: any) => {                        if (err) {
-                            vscode.window.showErrorMessage(`SFTP error: ${err?.message}`);
-                            logger?.error('SFTP error: ' + (err?.message || ''));
+            await vscode.window.withProgress(
+                {
+                    location: vscode.ProgressLocation.Notification,
+                    title: `Running Virtual Client on ${machine.label} (${machine.ip})`,
+                    cancellable: true,
+                },
+                async (progress, token) => {
+                    if (token) {
+                        token.onCancellationRequested(() => {
+                            if (runItem && runItem.label) {
+                                runCancelFlags[runItem.label] = true;
+                                vscode.window.showWarningMessage('Run cancellation requested.');
+                            }
                             // Clean up SSH resources only (panel already disposed)
                             resources.conn?.end();
                             resources.sftp?.end();
                             logStream?.end();
+                        });
+                    }
+                    progress.report({ message: 'Initializing run...' });
+                    // Validate user-supplied paths and parameters
+                    if (
+                        !message.packagePath ||
+                        typeof message.packagePath !== 'string' ||
+                        !message.packagePath.trim()
+                    ) {
+                        vscode.window.showErrorMessage('Local package path is required.');
+                        throw new Error('Local package path is required.');
+                    }
+                    if (!message.machineIp || typeof message.machineIp !== 'string' || !message.machineIp.trim()) {
+                        vscode.window.showErrorMessage('Machine IP is required.');
+                        throw new Error('Machine IP is required.');
+                    }
+                    const platform = machine.requirePlatform();
+                    const credentials = await machinesProvider.getMachineCredentials(message.machineIp);
+                    if (!credentials) {
+                        throw new Error('Machine credentials not found');
+                    }
+                    // Set the remote target directory based on the target machine platform
+                    let remoteTargetDir: string;
+                    if (defaultRemoteTargetDir) {
+                        // User has set a custom default - validate it matches the target platform
+                        if (machine.isWindows) {
+                            // For Windows machines, use user default if it looks like a Windows path, otherwise use Windows default
+                            if (defaultRemoteTargetDir.includes(':') || defaultRemoteTargetDir.includes('\\')) {
+                                remoteTargetDir = defaultRemoteTargetDir;
+                            } else {
+                                remoteTargetDir = WINDOWS_DEFAULT_REMOTE_DIR;
+                            }
+                        } else {
+                            // For Linux machines, use user default if it looks like a POSIX path, otherwise generate Linux default
+                            if (defaultRemoteTargetDir.startsWith('/') && !defaultRemoteTargetDir.includes(':')) {
+                                remoteTargetDir = defaultRemoteTargetDir;
+                            } else {
+                                remoteTargetDir = machine.getDefaultRemoteTargetDir();
+                            }
+                        }
+                    } else {
+                        // No user default - always use machine's default
+                        remoteTargetDir = machine.getDefaultRemoteTargetDir();
+                    }
+
+                    // Update global state with last parameters (do not include remoteTargetDir)
+                    await saveLastRunParameters(context, message);
+
+                    // Create a new run item
+                    const runItem = scheduledRunsProvider.addRun(
+                        machine.ip,
+                        message.packagePath,
+                        platform,
+                        message.profile,
+                        message.system,
+                        message.timeout,
+                        message.exitWait,
+                        message.proxyApi,
+                        message.packageStore,
+                        message.eventHub,
+                        message.experimentId,
+                        message.clientId,
+                        message.metadata,
+                        message.parameters,
+                        message.port,
+                        message.ipAddress,
+                        message.logToFile,
+                        message.clean,
+                        message.debug,
+                        message.dependencies || '',
+                        message.iterations || 1,
+                        message.logLevel || '',
+                        message.failFast || false,
+                        createRunSteps()
+                    );
+
+                    // --- LOG FILE SETUP ---
+                    const logsDir = path.join(context.globalStorageUri.fsPath, LOGS_DIR_NAME);
+                    await ensureDirectoryExistsWithLogging(logsDir);
+                    const logLabel = (scheduledRunsProvider as any).getRunLabel
+                        ? (scheduledRunsProvider as any).getRunLabel(runItem.timestamp, runItem.machineIp)
+                        : runItem.label;
+                    const logFilePath = path.join(logsDir, `${logLabel}${LOG_FILE_EXTENSION}`);
+
+                    const { logger, outputChannel, logStream } = createRunLogger(runItem.label, logFilePath);
+                    logger.info(`Scheduled run started for ${runItem.label}`);
+                    // --- END LOG FILE SETUP ---
+                    // Register the connection for cancellation
+                    runCancelFlags[runItem.label] = false;
+                    resources.conn = new ssh2.Client();
+                    runConnections[runItem.label] = resources.conn;
+
+                    resources.conn.on('ready', () => {
+                        if (!resources.conn) {
                             return;
                         }
-                        resources.sftp = sftp;
-                        // Execute steps in sequence
-                        const executeSteps = async () => {
-                            let sftpDir: string | undefined = undefined;
-                            try {
-                                progress.report({ message: 'Initializing run...' });                                // Step 0: Setup Machine
-                                updateStepStatus(runItem.steps[0], 'running', undefined, scheduledRunsProvider);
-                                updateSubstepStatus(runItem.steps[0], 0, 'running', undefined, scheduledRunsProvider);
-                                logger?.info('Creating remote directory...');
+                        resources.conn.sftp((err: Error | undefined, sftp: any) => {
+                            if (err) {
+                                vscode.window.showErrorMessage(`SFTP error: ${err?.message}`);
+                                logger?.error('SFTP error: ' + (err?.message || ''));
+                                // Clean up SSH resources only (panel already disposed)
+                                resources.conn?.end();
+                                resources.sftp?.end();
+                                logStream?.end();
+                                return;
+                            }
+                            resources.sftp = sftp;
+                            // Execute steps in sequence
+                            const executeSteps = async () => {
+                                let sftpDir: string | undefined = undefined;
                                 try {
-                                    logger?.debug(`Attempting to create remote directory: ${remoteTargetDir}`);
-                                    if (!remoteTargetDir) {
-                                        throw new Error('Remote target directory is not set');
-                                    }
-                                    
-                                    // Verify SFTP connection
-                                    if (!sftp) {
-                                        throw new Error('SFTP connection is not established');
-                                    } else {
-                                        logger?.debug(`SFTP connection established`);
-                                    }
-                                    
-                                    // Create directory and get the relative SFTP path
-                                    sftpDir = await sftpMkdirRecursive(sftp, remoteTargetDir, logger);
-                                    
-                                    // Verify directory was created using the relative SFTP path
-                                    await new Promise((resolve, reject) => {
-                                        sftp.stat(sftpDir, (err: any) => {
-                                            if (err) {
-                                                const errorMsg = `Failed to verify directory creation: ${err.message}`;
-                                                logger?.error(errorMsg);
-                                                reject(new Error(errorMsg));
-                                            } else {
-                                                logger?.debug(`Successfully verified directory exists: ${sftpDir}`);
-                                                resolve(true);
-                                            }
-                                        });
-                                    });
+                                    progress.report({ message: 'Initializing run...' }); // Step 0: Setup Machine
+                                    updateStepStatus(runItem.steps[0], 'running', undefined, scheduledRunsProvider);
+                                    updateSubstepStatus(
+                                        runItem.steps[0],
+                                        0,
+                                        'running',
+                                        undefined,
+                                        scheduledRunsProvider
+                                    );
+                                    logger?.info('Creating remote directory...');
+                                    try {
+                                        logger?.debug(`Attempting to create remote directory: ${remoteTargetDir}`);
+                                        if (!remoteTargetDir) {
+                                            throw new Error('Remote target directory is not set');
+                                        }
 
-                                    updateSubstepStatus(runItem.steps[0], 0, 'success', undefined, scheduledRunsProvider);
-                                    updateStepStatus(runItem.steps[0], 'success', undefined, scheduledRunsProvider);  // Update parent step status
-                                    logger?.info('Remote directory created successfully');                                } catch (err) {
-                                    const errorMsg = `Failed to create remote directory: ${err instanceof Error ? err.message : String(err)}`;
-                                    markSubstepAsError(runItem.steps[0], 0, errorMsg, logger, scheduledRunsProvider);
-                                    vscode.window.showErrorMessage(errorMsg);
-                                    throw err; // Re-throw to prevent continuing to upload step
-                                }
+                                        // Verify SFTP connection
+                                        if (!sftp) {
+                                            throw new Error('SFTP connection is not established');
+                                        } else {
+                                            logger?.debug(`SFTP connection established`);
+                                        }
 
-                                // Only proceed to upload if directory creation was successful
-                                const stepStatus = runItem.steps[0].status as 'pending' | 'running' | 'success' | 'error';
-                                if (stepStatus !== 'success') {
-                                    const errorMsg = `Cannot proceed with upload: directory creation failed (status: ${stepStatus})`;
-                                    logger?.error(`${errorMsg}`);
-                                    throw new Error(errorMsg);
-                                }                                // Substep 0.1: Upload Package
-                                updateSubstepStatus(runItem.steps[0], 1, 'running', undefined, scheduledRunsProvider);
-                                logger?.info('Uploading package...');
-                                // Validate package path
-                                const validation = await validatePackagePath(message.packagePath);
-                                if (!validation.isValid) {
-                                    markSubstepAsError(runItem.steps[0], 1, validation.error!, logger, scheduledRunsProvider);
-                                    vscode.window.showErrorMessage(`Upload package failed: ${validation.error}`);
-                                    throw new Error(validation.error);
-                                }                                // Use sftpDir as the base for all subsequent SFTP operations
-                                const remotePackagePath = machine.getRemotePath(sftpDir || remoteTargetDir, path.basename(message.packagePath));
-                                // Fix extracted directory path logic:
-                                const packageName = path.basename(message.packagePath, path.extname(message.packagePath));
-                                const extractDestDir = machine.getRemotePath(sftpDir || remoteTargetDir, packageName);
-                                const remoteExtractDir = extractDestDir;                                logger?.debug(`remotePackagePath: ${remotePackagePath}`);
-                                logger?.debug(`remoteExtractDir: ${remoteExtractDir}`);if (await checkRemoteFileExists(sftp, remoteExtractDir, logger)) {
-                                    logger?.debug('Extracted directory exists. Skipping extraction.');
-                                    updateSubstepStatus(runItem.steps[0], 1, 'success', undefined, scheduledRunsProvider);
-                                    logger?.info('Package upload skipped (already present and extracted)');
-                                } else {
-                                    logger?.debug('Extracted directory does not exist. Proceeding with upload and extraction.');                                    // --- NEW LOGIC: Check if remote package file exists, upload if not ---
-                                    const remotePackageExists = await checkRemoteFileExists(sftp, remotePackagePath, logger);
-                                    if (!remotePackageExists) {
-                                        logger?.debug('Remote package does not exist. Uploading package...');
-                                        const localPath = message.packagePath;
-                                        const remotePath = remotePackagePath;
-                                        const { size: totalSize } = await fsPromises.stat(localPath);
-                                        const totalMB = totalSize / (1024 * 1024);
-                                        logger?.debug(`Uploading ${totalMB.toFixed(2)} MB package...`);                                        // Progress bar state
-                                        let lastLoggedPercent = { value: 0 };
-                                    
-                                        // Log 0% at the start
-                                        logger?.info(`${renderProgressBar(0)} (0.00 MB / ${totalMB.toFixed(2)} MB)`);
-                                    
-                                        await new Promise<void>((resolve, reject) => {
-                                            sftp.fastPut(localPath, remotePath, {
-                                                // step is a built-in progress callback for fastPut in ssh2
-                                                step: (transferred: number, chunk: number, total: number) => {
-                                                    logUploadProgress(transferred, total, logger, lastLoggedPercent);
-                                                },
-                                            }, (err: Error | undefined) => {
+                                        // Create directory and get the relative SFTP path
+                                        sftpDir = await sftpMkdirRecursive(sftp, remoteTargetDir, logger);
+
+                                        // Verify directory was created using the relative SFTP path
+                                        await new Promise((resolve, reject) => {
+                                            sftp.stat(sftpDir, (err: any) => {
                                                 if (err) {
-                                                    logger?.error('Upload failed: ' + err.message);
-                                                    return reject(err); // Make sure to reject the promise
+                                                    const errorMsg = `Failed to verify directory creation: ${err.message}`;
+                                                    logger?.error(errorMsg);
+                                                    reject(new Error(errorMsg));
+                                                } else {
+                                                    logger?.debug(`Successfully verified directory exists: ${sftpDir}`);
+                                                    resolve(true);
                                                 }
-                                                logger?.debug('Package upload completed');
-                                                resolve();
                                             });
                                         });
-                                    } else {
-                                        logger?.debug('Remote package already exists. Skipping upload.');
+
+                                        updateSubstepStatus(
+                                            runItem.steps[0],
+                                            0,
+                                            'success',
+                                            undefined,
+                                            scheduledRunsProvider
+                                        );
+                                        logger?.info('Remote directory created successfully');
+                                    } catch (err) {
+                                        const errorMsg = `Failed to create remote directory: ${err instanceof Error ? err.message : String(err)}`;
+                                        markSubstepAsError(
+                                            runItem.steps[0],
+                                            0,
+                                            errorMsg,
+                                            logger,
+                                            scheduledRunsProvider
+                                        );
+                                        vscode.window.showErrorMessage(errorMsg);
+                                        throw err; // Re-throw to prevent continuing to upload step
                                     }
-                                    // --- END NEW LOGIC ---
-                                    // Extraction logic (must be after upload is complete)
-                                    try {
-                                        let checkExtractCmd = '';
-                                        let extractCmd = '';                                        const safeRemotePackagePath = remotePackagePath.replace(/'/g, "'\\''");
-                                        if (machine.isWindows) {
-                                            checkExtractCmd = 'powershell -Command "Get-Command Expand-Archive"';
-                                            extractCmd = `powershell -Command \"Expand-Archive -Path '${remotePackagePath.replace(/\//g, '\\')}' -DestinationPath '${extractDestDir.replace(/\//g, '\\')}' -Force\"`;
-                                        } else if (remotePackagePath.endsWith('.zip')) {
-                                            checkExtractCmd = 'command -v unzip';
-                                            extractCmd = `unzip -o ${safeRemotePackagePath} -d ${machine.getPlatformQuote()(extractDestDir)}`;
-                                        } else if (remotePackagePath.endsWith('.tar.gz') || remotePackagePath.endsWith('.tgz')) {
-                                            checkExtractCmd = 'command -v tar';
-                                            extractCmd = `tar -xzf ${safeRemotePackagePath} -C ${machine.getPlatformQuote()(extractDestDir)}`;
-                                        } else if (remotePackagePath.endsWith('.tar')) {
-                                            checkExtractCmd = 'command -v tar';
-                                            extractCmd = `tar -xf ${safeRemotePackagePath} -C ${machine.getPlatformQuote()(extractDestDir)}`;
-                                        }
-                                        // --- RUN EXTRACTION COMMAND IF DEFINED ---
-                                        if (extractCmd) {
-                                            logger?.debug(`Running extraction command: ${extractCmd}`);
-                                            await new Promise((resolve, reject) => {
-                                                resources.conn!.exec(extractCmd, (err: Error | undefined, stream: any) => {
-                                                    if (err) {
-                                                        const detail = `Extraction failed to start: ${err?.message}`;
-                                                        if (runItem.steps[0].substeps && runItem.steps[0].substeps[1]) { runItem.steps[0].substeps[1].status = 'error'; runItem.steps[0].substeps[1].detail = detail; scheduledRunsProvider.update(); }
-                                                        logger?.error(detail);
-                                                        return reject(err);
-                                                    }
-                                                    let stdout = '';
-                                                    let stderr = '';
-                                                    // Suppress per-line extraction output, only log on error or summary
-                                                    stream.on('data', (data: Buffer) => {
-                                                        stdout += data.toString();
-                                                    });
-                                                    stream.stderr.on('data', (data: Buffer) => {
-                                                        stderr += data.toString();
-                                                    });                                                    stream.on('close', async (code: number) => {
-                                                        if (code === 0) {
-                                                            // After extraction, verify the directory exists
-                                                            const extractedNowExists = await checkRemoteFileExists(sftp, remoteExtractDir, logger);
-                                                            if (extractedNowExists) {
-                                                                updateSubstepStatus(runItem.steps[0], 1, 'success', undefined, scheduledRunsProvider);
-                                                                logger?.info('Package extracted and verified');
-                                                                resolve(true);
-                                                            } else {
-                                                                const detail = 'Extraction command completed but extracted directory not found.';
-                                                                markSubstepAsError(runItem.steps[0], 1, detail, logger, scheduledRunsProvider);
-                                                                vscode.window.showErrorMessage(detail);
-                                                                reject(new Error(detail));
-                                                            }
-                                                        } else {
-                                                            const detail = `Extraction failed (code ${code}): ${stderr}`;
-                                                            markSubstepAsError(runItem.steps[0], 1, detail, logger, scheduledRunsProvider);
-                                                            vscode.window.showErrorMessage(detail);
-                                                            reject(new Error(detail));
+
+                                    // Only proceed to upload if directory creation substep succeeded
+                                    const dirCreateStatus = (runItem.steps[0]?.substeps?.[0]?.status || 'pending') as
+                                        | 'pending'
+                                        | 'running'
+                                        | 'success'
+                                        | 'error';
+                                    if (dirCreateStatus !== 'success') {
+                                        const errorMsg = `Cannot proceed with upload: directory creation failed (status: ${dirCreateStatus})`;
+                                        logger?.error(`${errorMsg}`);
+                                        throw new Error(errorMsg);
+                                    } // Substep 0.1: Upload Package
+                                    updateSubstepStatus(
+                                        runItem.steps[0],
+                                        1,
+                                        'running',
+                                        undefined,
+                                        scheduledRunsProvider
+                                    );
+                                    logger?.info('Uploading package...');
+                                    // Validate package path
+                                    const validation = await validatePackagePath(message.packagePath);
+                                    if (!validation.isValid) {
+                                        markSubstepAsError(
+                                            runItem.steps[0],
+                                            1,
+                                            validation.error!,
+                                            logger,
+                                            scheduledRunsProvider
+                                        );
+                                        vscode.window.showErrorMessage(`Upload package failed: ${validation.error}`);
+                                        throw new Error(validation.error);
+                                    }
+
+                                    // Use sftpDir as the base for all subsequent SFTP operations
+                                    const remotePackagePath = machine.getRemotePath(
+                                        sftpDir || remoteTargetDir,
+                                        path.basename(message.packagePath)
+                                    );
+                                    // Fix extracted directory path logic:
+                                    const packageName = path.basename(
+                                        message.packagePath,
+                                        path.extname(message.packagePath)
+                                    );
+                                    const extractDestDir = machine.getRemotePath(
+                                        sftpDir || remoteTargetDir,
+                                        packageName
+                                    );
+                                    const remoteExtractDir = extractDestDir;
+
+                                    logger?.debug(`remotePackagePath: ${remotePackagePath}`);
+                                    logger?.debug(`remoteExtractDir: ${remoteExtractDir}`);
+
+                                    if (await checkRemoteFileExists(sftp, remoteExtractDir, logger)) {
+                                        logger?.debug('Extracted directory exists. Skipping extraction.');
+                                        updateSubstepStatus(
+                                            runItem.steps[0],
+                                            1,
+                                            'success',
+                                            undefined,
+                                            scheduledRunsProvider
+                                        );
+                                        logger?.info('Package upload skipped (already present and extracted)');
+                                    } else {
+                                        logger?.debug(
+                                            'Extracted directory does not exist. Proceeding with upload and extraction.'
+                                        );
+
+                                        // --- NEW LOGIC: Check if remote package file exists, upload if not ---
+                                        const remotePackageExists = await checkRemoteFileExists(
+                                            sftp,
+                                            remotePackagePath,
+                                            logger
+                                        );
+                                        if (!remotePackageExists) {
+                                            logger?.debug('Remote package does not exist. Uploading package...');
+                                            const localPath = message.packagePath;
+                                            const remotePath = remotePackagePath;
+                                            const { size: totalSize } = await fsPromises.stat(localPath);
+                                            const totalMB = totalSize / (1024 * 1024);
+                                            logger?.debug(`Uploading ${totalMB.toFixed(2)} MB package...`);
+
+                                            // Progress bar state
+                                            let lastLoggedPercent = { value: 0 };
+
+                                            // Log 0% at the start
+                                            logger?.info(
+                                                `${renderProgressBar(0)} (0.00 MB / ${totalMB.toFixed(2)} MB)`
+                                            );
+
+                                            await new Promise<void>((resolve, reject) => {
+                                                sftp.fastPut(
+                                                    localPath,
+                                                    remotePath,
+                                                    {
+                                                        // step is a built-in progress callback for fastPut in ssh2
+                                                        step: (transferred: number, chunk: number, total: number) => {
+                                                            logUploadProgress(
+                                                                transferred,
+                                                                total,
+                                                                logger,
+                                                                lastLoggedPercent
+                                                            );
+                                                        },
+                                                    },
+                                                    (err: Error | undefined) => {
+                                                        if (err) {
+                                                            logger?.error('Upload failed: ' + err.message);
+                                                            return reject(err); // Make sure to reject the promise
                                                         }
-                                                    });
-                                                });
+                                                        logger?.debug('Package upload completed');
+                                                        resolve();
+                                                    }
+                                                );
                                             });
                                         } else {
-                                            logger?.debug('No extraction command defined for this package type.');
+                                            logger?.debug('Remote package already exists. Skipping upload.');
                                         }
-                            } catch (err) {
-                                    logger?.debug(`Upload or extraction failed: ${err instanceof Error ? err.message : err}`);                                    logger?.error(`Upload or extraction failed: ${err instanceof Error ? err.message : err}`);
-                                    vscode.window.showErrorMessage(`Upload or extraction failed: ${err instanceof Error ? err.message : err}`);
-                                    throw err;
-                                }
-                            }                            // Mark Setup Machine as success if all substeps succeeded
-                            updateParentStepIfComplete(runItem.steps[0], scheduledRunsProvider);                            // Step 1: Run Virtual Client
-                            updateStepStatus(runItem.steps[1], 'running', undefined, scheduledRunsProvider);
-                            updateSubstepStatus(runItem.steps[1], 0, 'running', undefined, scheduledRunsProvider);
-                            logger?.info('Verifying Virtual Client tool...');                            const toolExecutable = machine.getToolExecutableName();
-                            const toolPath = machine.getRemotePath(extractDestDir, 'content', machine.requirePlatform(), toolExecutable);
-                            const toolDir = path.dirname(toolPath);
-                            
-                            // --- TOOL PATH VALIDATION AND LOGGING ---
-                            // Validate tool path exists on remote before running                            logger?.info(`Tool path verified: ${toolPath}`);
-                            logger?.debug(`Tool path: ${toolPath}`);
-                            const toolExists = await checkRemoteFileExists(sftp, toolPath, logger);
-                              // For Linux: chmod +x VirtualClient after validation
-                            if (machine.isLinux && toolExists) {
-                                await executeSSHCommand(resources.conn!, `chmod +x ${machine.getPlatformQuote()(toolPath)}`, logger);
-                                logger?.debug(`Ran chmod +x on ${toolPath}`);
-                            }
-                            
-                            if (toolExists) {
-                                updateSubstepStatus(runItem.steps[1], 0, 'success', undefined, scheduledRunsProvider);
-                            } else {
-                                const errorMsg = `VirtualClient tool not found at path: ${toolPath}`;
-                                markSubstepAsError(runItem.steps[1], 0, errorMsg, logger, scheduledRunsProvider);
-                                throw new Error(errorMsg);
-                            }                            // --- END TOOL PATH VALIDATION ---
-                            
-                            // Get platform-specific quote function for the target machine
-                            const platformQuote = machine.getPlatformQuote();
-                            
-                            // Merge additionalArgs with form fields, giving precedence to additionalArgs
-                            const vcCmd = buildVirtualClientCommand(message, message.additionalArgs, platformQuote);
-                              // Debug the platform and isWindows values before command construction                            logger?.debug(`Platform value: "${machine.requirePlatform()}"`);
-                            logger?.debug(`isWindows value: ${machine.isWindows}`);
-                            logger?.debug(`Condition (platform && isWindows): ${Boolean(machine.requirePlatform() && machine.isWindows)}`);
-                              // Run the command in the tool directory, capture PID
-                            let command = '';
-                            if (machine.isWindows) {
-                                command = `"${toolPath}"${vcCmd}`;                                logger?.debug(`Using Windows command path`);
-                                logger?.debug(`Executing Virtual Client tool: ${toolPath}`);
-                            } else {
-                                // For Linux: run as sudo with password from credentials
-                                command = `echo '${credentials.password.replace(/'/g, "'\\''")}' | sudo -S ${platformQuote(toolPath)}${vcCmd}`;                                logger?.debug(`Using Linux command path`);
-                                logger?.debug(`Executing Virtual Client tool with sudo: ${toolPath}`);
-                            }// Run the command in the remote target directory, capture PID
-                            updateSubstepStatus(runItem.steps[1], 1, 'running', undefined, scheduledRunsProvider);
-                            logger?.info('Executing Virtual Client command...');
-                            
-                            let executionError: Error | null = null;
-                            
-                            try {
-                                const result = await executeSSHCommandWithStreaming(
-                                    resources.conn!,
-                                    command,
-                                    (data) => logger?.info('VC stdout: ' + data),
-                                    (data) => logger?.warn('VC stderr: ' + data),
-                                    logger
-                                );
-                                
-                                if (runCancelFlags[runItem.label]) {
-                                    markSubstepAsError(runItem.steps[1], 1, 'Run cancelled.', logger, scheduledRunsProvider);
-                                    executionError = new Error('Run cancelled');
-                                } else if (result.exitCode === 0) {
-                                    updateSubstepStatus(runItem.steps[1], 1, 'success', undefined, scheduledRunsProvider);
-                                    logger?.info('Virtual Client execution completed successfully');
-                                    // Mark parent as success only if both substeps succeeded
-                                    updateParentStepIfComplete(runItem.steps[1], scheduledRunsProvider);
-                                } else {
-                                    const errorMsg = `Execution failed (code ${result.exitCode}): ${result.stderr}`;
-                                    markSubstepAsError(runItem.steps[1], 1, errorMsg, logger, scheduledRunsProvider);
-                                    executionError = new Error(errorMsg);
-                                }
-                            } catch (error) {
-                                if (runCancelFlags[runItem.label]) {
-                                    markSubstepAsError(runItem.steps[1], 1, 'Run cancelled before execution.', logger, scheduledRunsProvider);
-                                    executionError = new Error('Run cancelled before execution');
-                                } else {
-                                    markSubstepAsError(runItem.steps[1], 1, `Failed to start Virtual Client: ${(error as Error).message}`, logger, scheduledRunsProvider);
-                                    executionError = error as Error;
-                                }
-                            }
-                            // Step 2: Transfer Logs
-                            const logsStep = new ScheduledRunStep('Transfer Logs', 'running', undefined, [
-                                new ScheduledRunStep('Archive Logs Folder', 'pending'),
-                                new ScheduledRunStep('Download Logs Archive', 'pending'),
-                                new ScheduledRunStep('Extract Logs Locally', 'pending')
-                            ]);
-                            runItem.steps.push(logsStep);
-                            scheduledRunsProvider.update();
-
-                            try {
-                                // Get archive paths and set up step metadata
-                                const { remoteArchivePath, isTar } = getRemoteArchivePaths(platform, extractDestDir);
-                                
-                                // Set runLabel and download path on Extract Logs Locally step
-                                if (logsStep.substeps && logsStep.substeps[2]) {
-                                    (logsStep.substeps[2] as any).runLabel = runItem.label;                                    (logsStep.substeps[2] as any).archivePath = path.join(
-                                        context.globalStorageUri.fsPath,
-                                        LOGS_DIR_NAME,
-                                        sanitizeLabel(runItem.label),
-                                        isTar ? LOGS_TAR : LOGS_ZIP
+                                        // --- END NEW LOGIC ---
+                                        // Extraction logic (must be after upload is complete)
+                                        try {
+                                            let checkExtractCmd = '';
+                                            let extractCmd = '';
+                                            const safeRemotePackagePath = remotePackagePath.replace(/'/g, "'\\''");
+                                            if (machine.isWindows) {
+                                                checkExtractCmd = 'powershell -Command "Get-Command Expand-Archive"';
+                                                extractCmd = `powershell -Command \"Expand-Archive -Path '${remotePackagePath.replace(/\//g, '\\')}' -DestinationPath '${extractDestDir.replace(/\//g, '\\')}' -Force\"`;
+                                            } else if (remotePackagePath.endsWith('.zip')) {
+                                                checkExtractCmd = 'command -v unzip';
+                                                extractCmd = `unzip -o ${safeRemotePackagePath} -d ${machine.getPlatformQuote()(extractDestDir)}`;
+                                            } else if (
+                                                remotePackagePath.endsWith('.tar.gz') ||
+                                                remotePackagePath.endsWith('.tgz')
+                                            ) {
+                                                checkExtractCmd = 'command -v tar';
+                                                extractCmd = `tar -xzf ${safeRemotePackagePath} -C ${machine.getPlatformQuote()(extractDestDir)}`;
+                                            } else if (remotePackagePath.endsWith('.tar')) {
+                                                checkExtractCmd = 'command -v tar';
+                                                extractCmd = `tar -xf ${safeRemotePackagePath} -C ${machine.getPlatformQuote()(extractDestDir)}`;
+                                            }
+                                            // --- RUN EXTRACTION COMMAND IF DEFINED ---
+                                            if (extractCmd) {
+                                                logger?.debug(`Running extraction command: ${extractCmd}`);
+                                                await new Promise((resolve, reject) => {
+                                                    resources.conn!.exec(
+                                                        extractCmd,
+                                                        (err: Error | undefined, stream: any) => {
+                                                            if (err) {
+                                                                const detail = `Extraction failed to start: ${err?.message}`;
+                                                                if (
+                                                                    runItem.steps[0].substeps &&
+                                                                    runItem.steps[0].substeps[1]
+                                                                ) {
+                                                                    runItem.steps[0].substeps[1].status = 'error';
+                                                                    runItem.steps[0].substeps[1].detail = detail;
+                                                                    scheduledRunsProvider.update();
+                                                                }
+                                                                logger?.error(detail);
+                                                                return reject(err);
+                                                            }
+                                                            let stdout = '';
+                                                            let stderr = '';
+                                                            // Suppress per-line extraction output, only log on error or summary
+                                                            stream.on('data', (data: Buffer) => {
+                                                                stdout += data.toString();
+                                                            });
+                                                            stream.stderr.on('data', (data: Buffer) => {
+                                                                stderr += data.toString();
+                                                            });
+                                                            stream.on('close', async (code: number) => {
+                                                                if (code === 0) {
+                                                                    // After extraction, verify the directory exists
+                                                                    const extractedNowExists =
+                                                                        await checkRemoteFileExists(
+                                                                            sftp,
+                                                                            remoteExtractDir,
+                                                                            logger
+                                                                        );
+                                                                    if (extractedNowExists) {
+                                                                        updateSubstepStatus(
+                                                                            runItem.steps[0],
+                                                                            1,
+                                                                            'success',
+                                                                            undefined,
+                                                                            scheduledRunsProvider
+                                                                        );
+                                                                        logger?.info('Package extracted and verified');
+                                                                        resolve(true);
+                                                                    } else {
+                                                                        const detail =
+                                                                            'Extraction command completed but extracted directory not found.';
+                                                                        markSubstepAsError(
+                                                                            runItem.steps[0],
+                                                                            1,
+                                                                            detail,
+                                                                            logger,
+                                                                            scheduledRunsProvider
+                                                                        );
+                                                                        vscode.window.showErrorMessage(detail);
+                                                                        reject(new Error(detail));
+                                                                    }
+                                                                } else {
+                                                                    const detail = `Extraction failed (code ${code}): ${stderr}`;
+                                                                    markSubstepAsError(
+                                                                        runItem.steps[0],
+                                                                        1,
+                                                                        detail,
+                                                                        logger,
+                                                                        scheduledRunsProvider
+                                                                    );
+                                                                    vscode.window.showErrorMessage(detail);
+                                                                    reject(new Error(detail));
+                                                                }
+                                                            });
+                                                        }
+                                                    );
+                                                });
+                                            } else {
+                                                logger?.debug('No extraction command defined for this package type.');
+                                            }
+                                        } catch (err) {
+                                            logger?.debug(
+                                                `Upload or extraction failed: ${err instanceof Error ? err.message : err}`
+                                            );
+                                            logger?.error(
+                                                `Upload or extraction failed: ${err instanceof Error ? err.message : err}`
+                                            );
+                                            vscode.window.showErrorMessage(
+                                                `Upload or extraction failed: ${err instanceof Error ? err.message : err}`
+                                            );
+                                            throw err;
+                                        }
+                                    } // Mark Setup Machine as success if all substeps succeeded
+                                    updateParentStepIfComplete(runItem.steps[0], scheduledRunsProvider); // Step 1: Run Virtual Client
+                                    updateStepStatus(runItem.steps[1], 'running', undefined, scheduledRunsProvider);
+                                    updateSubstepStatus(
+                                        runItem.steps[1],
+                                        0,
+                                        'running',
+                                        undefined,
+                                        scheduledRunsProvider
                                     );
-                                }
+                                    logger?.info('Verifying Virtual Client tool...');
+                                    const toolExecutable = machine.getToolExecutableName();
+                                    const toolPath = machine.getRemotePath(
+                                        extractDestDir,
+                                        'content',
+                                        machine.requirePlatform(),
+                                        toolExecutable
+                                    );
+                                    const toolDir = path.dirname(toolPath);
 
-                                // Update step statuses as we progress
-                                updateSubstepStatus(logsStep, 0, 'running', undefined, scheduledRunsProvider);
-                                updateSubstepStatus(logsStep, 1, 'running', undefined, scheduledRunsProvider);
-                                updateSubstepStatus(logsStep, 2, 'running', undefined, scheduledRunsProvider);
-                                
-                                logger?.info('Transferring logs: archiving, downloading, and extracting...');
-                                
-                                // Use the complete transfer logs utility function
-                                const localLogsDir = await transferLogs({
-                                    context,
-                                    runLabel: runItem.label,
-                                    platform,
-                                    extractDestDir,
-                                    conn: resources.conn!,
-                                    sftp: resources.sftp!,
-                                    credentials,
-                                    logger,
-                                    shQuote
+                                    // --- TOOL PATH VALIDATION AND LOGGING ---
+                                    // Validate tool path exists on remote before running                            logger?.info(`Tool path verified: ${toolPath}`);
+                                    logger?.debug(`Tool path: ${toolPath}`);
+                                    const toolExists = await checkRemoteFileExists(sftp, toolPath, logger);
+                                    // For Linux: chmod +x VirtualClient after validation
+                                    if (machine.isLinux && toolExists) {
+                                        await executeSSHCommand(
+                                            resources.conn!,
+                                            `chmod +x ${machine.getPlatformQuote()(toolPath)}`,
+                                            logger
+                                        );
+                                        logger?.debug(`Ran chmod +x on ${toolPath}`);
+                                    }
+
+                                    if (toolExists) {
+                                        updateSubstepStatus(
+                                            runItem.steps[1],
+                                            0,
+                                            'success',
+                                            undefined,
+                                            scheduledRunsProvider
+                                        );
+                                    } else {
+                                        const errorMsg = `VirtualClient tool not found at path: ${toolPath}`;
+                                        markSubstepAsError(
+                                            runItem.steps[1],
+                                            0,
+                                            errorMsg,
+                                            logger,
+                                            scheduledRunsProvider
+                                        );
+                                        throw new Error(errorMsg);
+                                    } // --- END TOOL PATH VALIDATION ---
+
+                                    // Get platform-specific quote function for the target machine
+                                    const platformQuote = machine.getPlatformQuote();
+
+                                    // Merge additionalArgs with form fields, giving precedence to additionalArgs
+                                    const vcCmd = buildVirtualClientCommand(
+                                        message,
+                                        message.additionalArgs,
+                                        platformQuote
+                                    );
+                                    // Debug the platform and isWindows values before command construction                            logger?.debug(`Platform value: "${machine.requirePlatform()}"`);
+                                    logger?.debug(`isWindows value: ${machine.isWindows}`);
+                                    logger?.debug(
+                                        `Condition (platform && isWindows): ${Boolean(machine.requirePlatform() && machine.isWindows)}`
+                                    );
+                                    // Run the command in the tool directory, capture PID
+                                    let command = '';
+                                    if (machine.isWindows) {
+                                        command = `"${toolPath}"${vcCmd}`;
+                                        logger?.debug(`Using Windows command path`);
+                                        logger?.debug(`Executing Virtual Client tool: ${toolPath}`);
+                                    } else {
+                                        // For Linux: run as sudo with password from credentials
+                                        command = `echo '${credentials.password.replace(/'/g, "'\\''")}' | sudo -S ${platformQuote(toolPath)}${vcCmd}`;
+                                        logger?.debug(`Using Linux command path`);
+                                        logger?.debug(`Executing Virtual Client tool with sudo: ${toolPath}`);
+                                    } // Run the command in the remote target directory, capture PID
+                                    updateSubstepStatus(
+                                        runItem.steps[1],
+                                        1,
+                                        'running',
+                                        undefined,
+                                        scheduledRunsProvider
+                                    );
+                                    logger?.info('Executing Virtual Client command...');
+
+                                    let executionError: Error | null = null;
+
+                                    try {
+                                        const result = await executeSSHCommandWithStreaming(
+                                            resources.conn!,
+                                            command,
+                                            data => logger?.info('VC stdout: ' + data),
+                                            data => logger?.warn('VC stderr: ' + data),
+                                            logger
+                                        );
+
+                                        if (runCancelFlags[runItem.label]) {
+                                            markSubstepAsError(
+                                                runItem.steps[1],
+                                                1,
+                                                'Run cancelled.',
+                                                logger,
+                                                scheduledRunsProvider
+                                            );
+                                            executionError = new Error('Run cancelled');
+                                        } else if (result.exitCode === 0) {
+                                            updateSubstepStatus(
+                                                runItem.steps[1],
+                                                1,
+                                                'success',
+                                                undefined,
+                                                scheduledRunsProvider
+                                            );
+                                            logger?.info('Virtual Client execution completed successfully');
+                                            // Mark parent as success only if both substeps succeeded
+                                            updateParentStepIfComplete(runItem.steps[1], scheduledRunsProvider);
+                                        } else {
+                                            const errorMsg = `Execution failed (code ${result.exitCode}): ${result.stderr}`;
+                                            markSubstepAsError(
+                                                runItem.steps[1],
+                                                1,
+                                                errorMsg,
+                                                logger,
+                                                scheduledRunsProvider
+                                            );
+                                            executionError = new Error(errorMsg);
+                                        }
+                                    } catch (error) {
+                                        if (runCancelFlags[runItem.label]) {
+                                            markSubstepAsError(
+                                                runItem.steps[1],
+                                                1,
+                                                'Run cancelled before execution.',
+                                                logger,
+                                                scheduledRunsProvider
+                                            );
+                                            executionError = new Error('Run cancelled before execution');
+                                        } else {
+                                            markSubstepAsError(
+                                                runItem.steps[1],
+                                                1,
+                                                `Failed to start Virtual Client: ${(error as Error).message}`,
+                                                logger,
+                                                scheduledRunsProvider
+                                            );
+                                            executionError = error as Error;
+                                        }
+                                    }
+                                    // Step 2: Transfer Logs
+                                    const logsStep = new ScheduledRunStep('Transfer Logs', 'running', undefined, [
+                                        new ScheduledRunStep('Archive Logs Folder', 'pending'),
+                                        new ScheduledRunStep('Download Logs Archive', 'pending'),
+                                        new ScheduledRunStep('Extract Logs Locally', 'pending'),
+                                    ]);
+                                    runItem.steps.push(logsStep);
+                                    scheduledRunsProvider.update();
+
+                                    try {
+                                        // Get archive paths and set up step metadata
+                                        const { remoteArchivePath, isTar } = getRemoteArchivePaths(
+                                            platform,
+                                            extractDestDir
+                                        );
+
+                                        // Set runLabel and download path on Extract Logs Locally step
+                                        if (logsStep.substeps && logsStep.substeps[2]) {
+                                            (logsStep.substeps[2] as any).runLabel = runItem.label;
+                                            (logsStep.substeps[2] as any).archivePath = path.join(
+                                                context.globalStorageUri.fsPath,
+                                                LOGS_DIR_NAME,
+                                                sanitizeLabel(runItem.label),
+                                                isTar ? LOGS_TAR : LOGS_ZIP
+                                            );
+                                        }
+
+                                        // Update step statuses as we progress
+                                        updateSubstepStatus(logsStep, 0, 'running', undefined, scheduledRunsProvider);
+                                        updateSubstepStatus(logsStep, 1, 'running', undefined, scheduledRunsProvider);
+                                        updateSubstepStatus(logsStep, 2, 'running', undefined, scheduledRunsProvider);
+
+                                        logger?.info('Transferring logs: archiving, downloading, and extracting...');
+
+                                        // Use the complete transfer logs utility function
+                                        const localLogsDir = await transferLogs({
+                                            context,
+                                            runLabel: runItem.label,
+                                            platform,
+                                            extractDestDir,
+                                            conn: resources.conn!,
+                                            sftp: resources.sftp!,
+                                            credentials,
+                                            logger,
+                                            shQuote,
+                                        });
+
+                                        // Mark all substeps as successful
+                                        updateSubstepStatus(logsStep, 0, 'success', undefined, scheduledRunsProvider);
+                                        updateSubstepStatus(logsStep, 1, 'success', undefined, scheduledRunsProvider);
+                                        updateSubstepStatus(logsStep, 2, 'success', undefined, scheduledRunsProvider);
+
+                                        // Build log file tree and attach to Extract Logs step
+                                        if (logsStep.substeps && logsStep.substeps[2]) {
+                                            logsStep.substeps[2].substeps = await buildLogFileTree(
+                                                localLogsDir,
+                                                logsStep.substeps[2],
+                                                runItem.label
+                                            );
+                                        }
+                                        updateStepStatus(
+                                            logsStep,
+                                            'success',
+                                            `Logs transferred to ${localLogsDir}`,
+                                            scheduledRunsProvider
+                                        );
+                                        logger?.info(`Logs transferred successfully to: ${localLogsDir}`);
+                                    } catch (err) {
+                                        markStepAsError(
+                                            logsStep,
+                                            err instanceof Error ? err.message : String(err),
+                                            logger,
+                                            scheduledRunsProvider
+                                        );
+                                        logger?.error(
+                                            'Log transfer failed: ' + (err instanceof Error ? err.message : String(err))
+                                        );
+                                    }
+
+                                    // After logs are transferred (or attempted), throw execution error if it occurred
+                                    if (executionError) {
+                                        throw executionError;
+                                    }
+                                } catch (error) {
+                                    progress.report({ message: 'Error occurred. See logs for details.' });
+                                    throw error;
+                                } finally {
+                                    logger?.info('Scheduled run finished.');
+                                    logStream?.end();
+                                    outputChannel?.appendLine('=== Run finished ===');
+                                    outputChannel?.show(true);
+                                }
+                            };
+
+                            // Check if remote package cleanup is requested
+                            const performCleanupBeforeExecution = async () => {
+                                if (message.cleanRemotePackages) {
+                                    try {
+                                        progress.report({ message: 'Cleaning remote packages...' });
+                                        logger?.debug('Cleaning remote packages before deployment');
+                                        await cleanRemotePackagesInternal(
+                                            resources.conn!,
+                                            machine,
+                                            credentials,
+                                            logger
+                                        );
+
+                                        logger?.debug('Remote packages cleaned successfully');
+                                        progress.report({ message: 'Remote packages cleaned, starting deployment...' });
+                                    } catch (cleanError) {
+                                        const errorMsg = `Failed to clean remote packages: ${cleanError instanceof Error ? cleanError.message : String(cleanError)}`;
+                                        logger?.error(errorMsg);
+                                        vscode.window.showWarningMessage(errorMsg + '. Continuing with deployment...');
+                                    }
+                                }
+                            }; // Perform cleanup if requested, then execute the deployment steps
+                            performCleanupBeforeExecution()
+                                .then(async () => {
+                                    await executeSteps();
+                                    // Panel already disposed, just clean up SSH resources
+                                    resources.conn?.end();
+                                    resources.sftp?.end();
+                                })
+                                .catch(async error => {
+                                    logger?.error(
+                                        `Failed during cleanup phase: ${error instanceof Error ? error.message : String(error)}`
+                                    );
+                                    await executeSteps(); // Continue with deployment even if cleanup fails
+                                    // Panel already disposed, just clean up SSH resources
+                                    resources.conn?.end();
+                                    resources.sftp?.end();
                                 });
-                                
-                                // Mark all substeps as successful
-                                updateSubstepStatus(logsStep, 0, 'success', undefined, scheduledRunsProvider);
-                                updateSubstepStatus(logsStep, 1, 'success', undefined, scheduledRunsProvider);
-                                updateSubstepStatus(logsStep, 2, 'success', undefined, scheduledRunsProvider);
-
-                                // Build log file tree and attach to Extract Logs step
-                                if (logsStep.substeps && logsStep.substeps[2]) {
-                                    logsStep.substeps[2].substeps = await buildLogFileTree(
-                                        localLogsDir, 
-                                        logsStep.substeps[2], 
-                                        runItem.label
-                                    );
-                                }                                updateStepStatus(logsStep, 'success', `Logs transferred to ${localLogsDir}`, scheduledRunsProvider);
-                                logger?.info(`Logs transferred successfully to: ${localLogsDir}`);
-                            } catch (err) {
-                                markStepAsError(logsStep, err instanceof Error ? err.message : String(err), logger, scheduledRunsProvider);
-                                logger?.error('Log transfer failed: ' + (err instanceof Error ? err.message : String(err)));
-                            }
-
-                            // After logs are transferred (or attempted), throw execution error if it occurred
-                            if (executionError) {
-                                throw executionError;
-                            }
-
-                        } catch (error) {
-                                progress.report({ message: 'Error occurred. See logs for details.' });
-                                throw error;
-                            } finally {
-                                logger?.info('Scheduled run finished.');
-                                logStream?.end();
-                                outputChannel?.appendLine('=== Run finished ===');
-                                outputChannel?.show(true);                        }
-                    };
-
-                    // Check if remote package cleanup is requested
-                    const performCleanupBeforeExecution = async () => {
-                        if (message.cleanRemotePackages) {
-                            try {                                progress.report({ message: 'Cleaning remote packages...' });                                logger?.debug('Cleaning remote packages before deployment');
-                                await cleanRemotePackagesInternal(resources.conn!, machine, credentials, logger);
-                                
-                                logger?.debug('Remote packages cleaned successfully');
-                                progress.report({ message: 'Remote packages cleaned, starting deployment...' });
-                            } catch (cleanError) {
-                                const errorMsg = `Failed to clean remote packages: ${cleanError instanceof Error ? cleanError.message : String(cleanError)}`;
-                                logger?.error(errorMsg);
-                                vscode.window.showWarningMessage(errorMsg + '. Continuing with deployment...');
-                            }
-                        }
-                    };                    // Perform cleanup if requested, then execute the deployment steps
-                    performCleanupBeforeExecution().then(async () => {
-                        await executeSteps();
-                        // Panel already disposed, just clean up SSH resources
-                        resources.conn?.end();
-                        resources.sftp?.end();
-                    }).catch(async (error) => {
-                        logger?.error(`Failed during cleanup phase: ${error instanceof Error ? error.message : String(error)}`);
-                        await executeSteps(); // Continue with deployment even if cleanup fails
-                        // Panel already disposed, just clean up SSH resources
-                        resources.conn?.end();
-                        resources.sftp?.end();
+                        });
                     });
-                });
-            });
 
-            resources.conn.connect({
-                host: machine.ip,
-                username: credentials.username,
-                password: credentials.password,
-                algorithms: {
-                    cipher: ['aes128-ctr']
+                    resources.conn.connect({
+                        host: machine.ip,
+                        username: credentials.username,
+                        password: credentials.password,
+                        algorithms: {
+                            cipher: ['aes128-ctr'],
+                        },
+                    });
+
+                    // Update status in scheduled runs provider
+                    scheduledRunsProvider.update();
                 }
-            });
-
-            // Update status in scheduled runs provider
-            scheduledRunsProvider.update();
-            });        } catch (error) {
+            );
+        } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
             vscode.window.showErrorMessage(`Failed to execute run: ${errorMessage}`);
             // If logStream is defined, log the error and close it
             if (logger && logStream) {
-                logger.error('Failed to execute run: ' + (error instanceof Error ? error.stack || error.message : error));
+                logger.error(
+                    'Failed to execute run: ' + (error instanceof Error ? error.stack || error.message : error)
+                );
                 logStream?.end();
             }
             // Clean up SSH resources only (panel already disposed)
             resources.conn?.end();
             resources.sftp?.end();
-        }    });
+        }
+    });
 
     // Clean up resources when panel is closed manually (before run starts)
     resources.panel.onDidDispose(() => {
@@ -1313,18 +1639,24 @@ async function handleDeleteMachine(context: vscode.ExtensionContext, item: Machi
             vscode.window.showInformationMessage(`Machine '${item.label}' deleted.`);
         }
     } catch (error) {
-        vscode.window.showErrorMessage(`Failed to delete machine: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        vscode.window.showErrorMessage(
+            `Failed to delete machine: ${error instanceof Error ? error.message : 'Unknown error'}`
+        );
     }
 }
 
-export async function handleStreamLogs(context: vscode.ExtensionContext, item: ScheduledRunItem, scheduledRunsProvider: ScheduledRunsProvider) {
+export async function handleStreamLogs(
+    context: vscode.ExtensionContext,
+    item: ScheduledRunItem,
+    scheduledRunsProvider: ScheduledRunsProvider
+) {
     const outputChannel = vscode.window.createOutputChannel(`Virtual Client Logs - ${item.label}`);
     outputChannel.show(true);
 
     // Start streaming logs from the log file
     const logFile = path.join(context.globalStorageUri.fsPath, LOGS_DIR_NAME, `${item.label}${LOG_FILE_EXTENSION}`);
     const logFileWatcher = vscode.workspace.createFileSystemWatcher(logFile);
-    
+
     logFileWatcher.onDidChange(async () => {
         try {
             const content = await vscode.workspace.fs.readFile(vscode.Uri.file(logFile));
@@ -1337,7 +1669,10 @@ export async function handleStreamLogs(context: vscode.ExtensionContext, item: S
     // Monitor run completion
     const disposable = scheduledRunsProvider.onDidChangeTreeData(async () => {
         const run = scheduledRunsProvider.getRun(item.runId);
-        if (run && run.steps.every((step: { status: string }) => step.status === 'success' || step.status === 'error')) {
+        if (
+            run &&
+            run.steps.every((step: { status: string }) => step.status === 'success' || step.status === 'error')
+        ) {
             // Run is complete, read final logs
             try {
                 const content = await vscode.workspace.fs.readFile(vscode.Uri.file(logFile));
@@ -1362,7 +1697,7 @@ async function handleShowLogFiles(context: vscode.ExtensionContext): Promise<voi
         }
 
         const selectedFile = await vscode.window.showQuickPick(logFiles, {
-            placeHolder: 'Select a log file to view'
+            placeHolder: 'Select a log file to view',
         });
 
         if (selectedFile) {
@@ -1371,7 +1706,9 @@ async function handleShowLogFiles(context: vscode.ExtensionContext): Promise<voi
             await vscode.window.showTextDocument(document);
         }
     } catch (error) {
-        vscode.window.showErrorMessage(`Failed to show log files: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        vscode.window.showErrorMessage(
+            `Failed to show log files: ${error instanceof Error ? error.message : 'Unknown error'}`
+        );
     }
 }
 
@@ -1408,26 +1745,21 @@ async function handleRerun(context: vscode.ExtensionContext, item: ScheduledRunI
         dependencies: item.dependencies,
         iterations: item.iterations,
         logLevel: item.logLevel,
-        failFast: item.failFast
+        failFast: item.failFast,
     };
 
     // Create a new webview panel with the last used parameters
-    const panel = vscode.window.createWebviewPanel(
-        'runVirtualClient',
-        'Run Virtual Client',
-        vscode.ViewColumn.One,
-        {
-            enableScripts: true,
-            localResourceRoots: [vscode.Uri.file(path.join(context.extensionPath, 'media'))],
-            retainContextWhenHidden: true
-        }
-    );
+    const panel = vscode.window.createWebviewPanel('runVirtualClient', 'Run Virtual Client', vscode.ViewColumn.One, {
+        enableScripts: true,
+        localResourceRoots: [vscode.Uri.file(path.join(context.extensionPath, 'media'))],
+        retainContextWhenHidden: true,
+    });
 
     // Get all machines from the provider
     const machines = await machinesProvider.getChildren();
     const machineItems = machines.map((m: MachineItem) => ({
         label: m.label,
-        ip: m.ip
+        ip: m.ip,
     }));
 
     // Helper to create fresh steps for each rerun
@@ -1435,12 +1767,12 @@ async function handleRerun(context: vscode.ExtensionContext, item: ScheduledRunI
         return [
             new ScheduledRunStep('Setup Machine', 'pending', undefined, [
                 new ScheduledRunStep('Create Remote Directory', 'pending'),
-                new ScheduledRunStep('Upload Package', 'pending')
+                new ScheduledRunStep('Upload Package', 'pending'),
             ]),
             new ScheduledRunStep('Run Virtual Client', 'pending', undefined, [
                 new ScheduledRunStep('Verify Virtual Client Tool', 'pending'),
-                new ScheduledRunStep('Execute Virtual Client Command', 'pending')
-            ])
+                new ScheduledRunStep('Execute Virtual Client Command', 'pending'),
+            ]),
         ];
     }
 
@@ -1492,7 +1824,7 @@ async function handleRerun(context: vscode.ExtensionContext, item: ScheduledRunI
             // Refresh the tree view
             if (treeViewProvider) {
                 treeViewProvider.refresh();
-            }            // Close the webview
+            } // Close the webview
             panel.dispose();
         }
     });
@@ -1502,32 +1834,36 @@ async function handleRerun(context: vscode.ExtensionContext, item: ScheduledRunI
  * Handles cleaning remote packages from VirtualClientScheduler directory
  */
 async function handleCleanRemotePackages(
-    context: vscode.ExtensionContext, 
-    machine: any, 
+    context: vscode.ExtensionContext,
+    machine: any,
     panel?: vscode.WebviewPanel
 ): Promise<void> {
     return new Promise((resolve, reject) => {
         const resources = {
             conn: null as ssh2.Client | null,
-            sftp: null as any
+            sftp: null as any,
         };
 
         const cleanup = () => {
             if (resources.sftp) {
-                try { resources.sftp.end(); } catch {}
+                try {
+                    resources.sftp.end();
+                } catch {}
             }
             if (resources.conn) {
-                try { resources.conn.end(); } catch {}
+                try {
+                    resources.conn.end();
+                } catch {}
             }
         };
 
         const handleError = (error: any) => {
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-            
+
             panel?.webview.postMessage({
                 command: 'cleanRemotePackagesComplete',
                 success: false,
-                error: errorMessage
+                error: errorMessage,
             });
 
             vscode.window.showErrorMessage(`Failed to clean remote packages: ${errorMessage}`);
@@ -1536,91 +1872,95 @@ async function handleCleanRemotePackages(
         };
 
         // Get machine credentials
-        machinesProvider.getMachineCredentials(machine.ip).then(credentials => {
-            if (!credentials) {
-                handleError(new Error('Machine credentials not found'));
-                return;
-            }
-
-            // Detect platform
-            const platform = machine.platform;
-            if (!platform) {
-                handleError(new Error('Machine platform not detected'));
-                return;
-            }
-
-            // Create SSH connection
-            resources.conn = new ssh2.Client();
-
-            resources.conn.on('ready', () => {
-                if (!resources.conn) {
+        machinesProvider
+            .getMachineCredentials(machine.ip)
+            .then(credentials => {
+                if (!credentials) {
+                    handleError(new Error('Machine credentials not found'));
                     return;
-                }                // Get remote target directory
-                const remoteTargetDir = machine.getDefaultRemoteTargetDir();
-                  // Build cleanup commands based on platform
-                let cleanupCommand: string;
-
-                if (machine.isWindows) {
-                    // Windows PowerShell command to remove all files and folders in VirtualClientScheduler
-                    cleanupCommand = `powershell -Command "if (Test-Path '${remoteTargetDir}') { Get-ChildItem -Path '${remoteTargetDir}' -Recurse | Remove-Item -Force -Recurse; Write-Host 'Cleaned VirtualClientScheduler directory' } else { Write-Host 'VirtualClientScheduler directory not found' }"`;
-                } else {
-                    // Linux command to completely remove and recreate the VirtualClientScheduler directory with sudo
-                    cleanupCommand = `echo '${credentials.password.replace(/'/g, "'\\''")}' | sudo -S bash -c 'if [ -d "${remoteTargetDir}" ]; then rm -rf "${remoteTargetDir}"; mkdir -p "${remoteTargetDir}"; chown ${credentials.username}:${credentials.username} "${remoteTargetDir}"; echo "Cleaned VirtualClientScheduler directory"; else echo "VirtualClientScheduler directory not found"; fi'`;
                 }
 
-                // Execute cleanup command
-                resources.conn.exec(cleanupCommand, (err: Error | undefined, stream: any) => {
-                    if (err) {
-                        handleError(err);
+                // Detect platform
+                const platform = machine.platform;
+                if (!platform) {
+                    handleError(new Error('Machine platform not detected'));
+                    return;
+                }
+
+                // Create SSH connection
+                resources.conn = new ssh2.Client();
+
+                resources.conn.on('ready', () => {
+                    if (!resources.conn) {
                         return;
+                    } // Get remote target directory
+                    const remoteTargetDir = machine.getDefaultRemoteTargetDir();
+                    // Build cleanup commands based on platform
+                    let cleanupCommand: string;
+
+                    if (machine.isWindows) {
+                        // Windows PowerShell command to remove all files and folders in VirtualClientScheduler
+                        cleanupCommand = `powershell -Command "if (Test-Path '${remoteTargetDir}') { Get-ChildItem -Path '${remoteTargetDir}' -Recurse | Remove-Item -Force -Recurse; Write-Host 'Cleaned VirtualClientScheduler directory' } else { Write-Host 'VirtualClientScheduler directory not found' }"`;
+                    } else {
+                        // Linux command to completely remove and recreate the VirtualClientScheduler directory with sudo
+                        cleanupCommand = `echo '${credentials.password.replace(/'/g, "'\\''")}' | sudo -S bash -c 'if [ -d "${remoteTargetDir}" ]; then rm -rf "${remoteTargetDir}"; mkdir -p "${remoteTargetDir}"; chown ${credentials.username}:${credentials.username} "${remoteTargetDir}"; echo "Cleaned VirtualClientScheduler directory"; else echo "VirtualClientScheduler directory not found"; fi'`;
                     }
 
-                    let stdout = '';
-                    let stderr = '';
-
-                    stream.on('data', (data: Buffer) => {
-                        stdout += data.toString();
-                    });
-
-                    stream.stderr.on('data', (data: Buffer) => {
-                        stderr += data.toString();
-                    });
-
-                    stream.on('close', (code: number) => {
-                        if (code !== 0) {
-                            handleError(new Error(`Cleanup command failed with exit code ${code}: ${stderr}`));
+                    // Execute cleanup command
+                    resources.conn.exec(cleanupCommand, (err: Error | undefined, stream: any) => {
+                        if (err) {
+                            handleError(err);
                             return;
                         }
 
-                        // Notify success
-                        panel?.webview.postMessage({
-                            command: 'cleanRemotePackagesComplete',
-                            success: true
+                        let stdout = '';
+                        let stderr = '';
+
+                        stream.on('data', (data: Buffer) => {
+                            stdout += data.toString();
                         });
 
-                        vscode.window.showInformationMessage(`Successfully cleaned remote packages from ${machine.label} (${machine.ip})`);
-                        
-                        cleanup();
-                        resolve();
+                        stream.stderr.on('data', (data: Buffer) => {
+                            stderr += data.toString();
+                        });
+
+                        stream.on('close', (code: number) => {
+                            if (code !== 0) {
+                                handleError(new Error(`Cleanup command failed with exit code ${code}: ${stderr}`));
+                                return;
+                            }
+
+                            // Notify success
+                            panel?.webview.postMessage({
+                                command: 'cleanRemotePackagesComplete',
+                                success: true,
+                            });
+
+                            vscode.window.showInformationMessage(
+                                `Successfully cleaned remote packages from ${machine.label} (${machine.ip})`
+                            );
+
+                            cleanup();
+                            resolve();
+                        });
                     });
                 });
-            });
 
-            resources.conn.on('error', (err: Error) => {
-                handleError(err);
-            });
+                resources.conn.on('error', (err: Error) => {
+                    handleError(err);
+                });
 
-            // Connect to the machine
-            resources.conn.connect({
-                host: machine.ip,
-                username: credentials.username,
-                password: credentials.password,
-                algorithms: {
-                    cipher: ['aes128-ctr']
-                }
-            });
-
-        }).catch(handleError);
+                // Connect to the machine
+                resources.conn.connect({
+                    host: machine.ip,
+                    username: credentials.username,
+                    password: credentials.password,
+                    algorithms: {
+                        cipher: ['aes128-ctr'],
+                    },
+                });
+            })
+            .catch(handleError);
     });
 }
 
@@ -1628,18 +1968,20 @@ async function handleCleanRemotePackages(
  * Internal helper function to clean remote packages using an existing SSH connection
  */
 async function cleanRemotePackagesInternal(
-    conn: ssh2.Client, 
-    machine: MachineItem, 
+    conn: ssh2.Client,
+    machine: MachineItem,
     credentials: { username: string; password: string },
     logger?: import('./types').Logger
 ): Promise<void> {
     return new Promise((resolve, reject) => {
         // Get remote target directory
         const remoteTargetDir = machine.getDefaultRemoteTargetDir();
-          // Build cleanup commands based on platform
-        let cleanupCommand: string;        if (machine.isWindows) {
+        // Build cleanup commands based on platform
+        let cleanupCommand: string;
+        if (machine.isWindows) {
             // Windows PowerShell command to remove all files and folders in VirtualClientScheduler
-            cleanupCommand = `powershell -Command "if (Test-Path '${remoteTargetDir}') { Get-ChildItem -Path '${remoteTargetDir}' -Recurse | Remove-Item -Force -Recurse; Write-Host 'Cleaned VirtualClientScheduler directory' } else { Write-Host 'VirtualClientScheduler directory not found' }"`;        } else {
+            cleanupCommand = `powershell -Command "if (Test-Path '${remoteTargetDir}') { Get-ChildItem -Path '${remoteTargetDir}' -Recurse | Remove-Item -Force -Recurse; Write-Host 'Cleaned VirtualClientScheduler directory' } else { Write-Host 'VirtualClientScheduler directory not found' }"`;
+        } else {
             // Linux command to completely remove and recreate the VirtualClientScheduler directory with sudo
             cleanupCommand = `echo '${credentials.password.replace(/'/g, "'\\''")}' | sudo -S bash -c 'if [ -d "${remoteTargetDir}" ]; then rm -rf "${remoteTargetDir}"; mkdir -p "${remoteTargetDir}"; chown ${credentials.username}:${credentials.username} "${remoteTargetDir}"; echo "Cleaned VirtualClientScheduler directory"; else echo "VirtualClientScheduler directory not found"; fi'`;
         }

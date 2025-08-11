@@ -95,20 +95,35 @@ export function getAddMachineWebviewContent(): string {
  * @param _steps Steps for the run.
  * @param webview The webview instance.
  */
-export function getRunVirtualClientWebviewContent(machines: any[], lastParams?: any, _steps?: any[], webview?: vscode.Webview): string {
-    const machineOptions = machines.map(machine => 
-        `<option value="${machine.ip}" ${lastParams?.machineIp === machine.ip ? 'selected' : ''}>${machine.label} (${machine.ip})</option>`
-    ).join('');
+export function getRunVirtualClientWebviewContent(
+    machines: any[],
+    lastParams?: any,
+    _steps?: any[],
+    webview?: vscode.Webview
+): string {
+    const machineOptions = machines
+        .map(
+            machine =>
+                `<option value="${machine.ip}" ${lastParams?.machineIp === machine.ip ? 'selected' : ''}>${machine.label} (${machine.ip})</option>`
+        )
+        .join('');
     // Prepare parameters for dynamic rows
-    const paramPairs = (lastParams?.parameters || '').split(/[;,]+/).map((s: string) => s.trim()).filter(Boolean).map((pair: string) => {
-        const [key, ...rest] = pair.split('=');
-        return { key: key.trim(), value: rest.join('=') };
-    });
-    const paramRowsHtml = paramPairs.map((p: {key: string, value: string}, idx: number) =>
-        `<div class="param-row"><input type="text" class="param-key" placeholder="key" value="${p.key.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}" aria-label="Parameter key">
+    const paramPairs = (lastParams?.parameters || '')
+        .split(/[;,]+/)
+        .map((s: string) => s.trim())
+        .filter(Boolean)
+        .map((pair: string) => {
+            const [key, ...rest] = pair.split('=');
+            return { key: key.trim(), value: rest.join('=') };
+        });
+    const paramRowsHtml = paramPairs
+        .map(
+            (p: { key: string; value: string }, idx: number) =>
+                `<div class="param-row"><input type="text" class="param-key" placeholder="key" value="${p.key.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}" aria-label="Parameter key">
         <input type="text" class="param-value" placeholder="value" value="${p.value.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}" aria-label="Parameter value">
         <button type="button" class="remove-param" title="Remove">&times;</button></div>`
-    ).join('');
+        )
+        .join('');
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -313,10 +328,10 @@ ${machineOptions}
 <div class="checkbox-item">
 <label>Clean (--clean):</label>
 <div class="checkbox-group" id="cleanGroup">
-<div class="checkbox-item"><input type="checkbox" id="clean_logs" name="clean_targets" value="logs" ${(lastParams?.clean_targets||[]).includes('logs') ? 'checked' : ''}><label for="clean_logs">logs</label></div>
-<div class="checkbox-item"><input type="checkbox" id="clean_packages" name="clean_targets" value="packages" ${(lastParams?.clean_targets||[]).includes('packages') ? 'checked' : ''}><label for="clean_packages">packages</label></div>
-<div class="checkbox-item"><input type="checkbox" id="clean_state" name="clean_targets" value="state" ${(lastParams?.clean_targets||[]).includes('state') ? 'checked' : ''}><label for="clean_state">state</label></div>
-<div class="checkbox-item"><input type="checkbox" id="clean_all" name="clean_targets" value="all" ${(lastParams?.clean_targets||[]).includes('all') ? 'checked' : ''}><label for="clean_all">all</label></div>
+<div class="checkbox-item"><input type="checkbox" id="clean_logs" name="clean_targets" value="logs" ${(lastParams?.clean_targets || []).includes('logs') ? 'checked' : ''}><label for="clean_logs">logs</label></div>
+<div class="checkbox-item"><input type="checkbox" id="clean_packages" name="clean_targets" value="packages" ${(lastParams?.clean_targets || []).includes('packages') ? 'checked' : ''}><label for="clean_packages">packages</label></div>
+<div class="checkbox-item"><input type="checkbox" id="clean_state" name="clean_targets" value="state" ${(lastParams?.clean_targets || []).includes('state') ? 'checked' : ''}><label for="clean_state">state</label></div>
+<div class="checkbox-item"><input type="checkbox" id="clean_all" name="clean_targets" value="all" ${(lastParams?.clean_targets || []).includes('all') ? 'checked' : ''}><label for="clean_all">all</label></div>
 </div>
 </div>
 <div class="checkbox-item">
@@ -376,7 +391,7 @@ function renderParamRows() {
       '<button type="button" class="remove-param" title="Remove">&times;</button>';
     row.querySelector('.remove-param').onclick = function() {
       params.splice(idx, 1);
-      paramRows.innerHTML = '';
+      const newRows = document.createDocumentFragment();
       params.forEach((p2, i2) => {
         const r2 = document.createElement('div');
         r2.className = 'param-row';
@@ -387,8 +402,10 @@ function renderParamRows() {
           params.splice(i2, 1);
           renderParamRows();
         };
-        paramRows.appendChild(r2);
+        newRows.appendChild(r2);
       });
+      paramRows.innerHTML = '';
+      paramRows.appendChild(newRows);
     };
     paramRows.appendChild(row);
   });
@@ -413,6 +430,18 @@ addParamBtn.onclick = function() {
 if (paramRows.children.length === 0 && ${paramPairs.length} > 0) {
   renderParamRows();
 }
+// START ADDITION: event delegation so initial remove buttons work
+paramRows.addEventListener('click', function(e) {
+  const target = e.target as HTMLElement;
+  const removeBtn = target.closest('.remove-param');
+  if (removeBtn) {
+    const row = (removeBtn as HTMLElement).closest('.param-row');
+    if (row) {
+      row.remove();
+    }
+  }
+});
+// END ADDITION
 function showError(id, show, msg) {
   var el = document.getElementById(id);
   if (!el) return;
@@ -531,14 +560,18 @@ window.addEventListener('message', function(event) {
 }
 
 export function showRunDetailsWebview(context: vscode.ExtensionContext, run: any) {
-    const panel = vscode.window.createWebviewPanel(
-        'runDetails',
-        `Run Details: ${run.label}`,
-        vscode.ViewColumn.One,
-        { enableScripts: true }
-    );
-    const stepsHtml = run.steps.map((step: any) => `<li class="step-item ${step.status}">${step.label}: ${step.status}${step.detail ? ' - ' + step.detail : ''}</li>`).join('');
-    const logsHtml = run.logs.map((line: string) => `<div style="font-family:monospace;white-space:pre;">${line}</div>`).join('');
+    const panel = vscode.window.createWebviewPanel('runDetails', `Run Details: ${run.label}`, vscode.ViewColumn.One, {
+        enableScripts: true,
+    });
+    const stepsHtml = run.steps
+        .map(
+            (step: any) =>
+                `<li class="step-item ${step.status}">${step.label}: ${step.status}${step.detail ? ' - ' + step.detail : ''}</li>`
+        )
+        .join('');
+    const logsHtml = run.logs
+        .map((line: string) => `<div style="font-family:monospace;white-space:pre;">${line}</div>`)
+        .join('');
     panel.webview.html = `
     <!DOCTYPE html>
     <html lang="en">

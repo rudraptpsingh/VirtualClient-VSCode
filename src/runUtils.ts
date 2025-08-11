@@ -4,7 +4,14 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { sanitizeLabel } from './utils';
-import { UNKNOWN_LABEL, UNKNOWN_IP, JSON_FILE_EXTENSION, LOGS_DIR_NAME, LOG_LABEL_PREFIX, TEMPLATES_DIR_NAME } from './constants';
+import {
+    UNKNOWN_LABEL,
+    UNKNOWN_IP,
+    JSON_FILE_EXTENSION,
+    LOGS_DIR_NAME,
+    LOG_LABEL_PREFIX,
+    TEMPLATES_DIR_NAME,
+} from './constants';
 import { ensureDirectoryExistsWithLogging } from './fileUtils';
 import type { Logger } from './types';
 import { TemplateManager, RunTemplate, TemplateCategory } from './templateManager';
@@ -21,7 +28,12 @@ export function extractRunLabel(stepOrRun: any): string | null {
     let runLabel = '';
     let logFileName = '';
 
-    if (stepOrRun && stepOrRun.label && typeof stepOrRun.label === 'string' && stepOrRun.label.startsWith(LOG_LABEL_PREFIX)) {
+    if (
+        stepOrRun &&
+        stepOrRun.label &&
+        typeof stepOrRun.label === 'string' &&
+        stepOrRun.label.startsWith(LOG_LABEL_PREFIX)
+    ) {
         logFileName = stepOrRun.label.substring(LOG_LABEL_PREFIX.length);
         if (stepOrRun.parent && stepOrRun.parent.label) {
             if (stepOrRun.parent.parent && stepOrRun.parent.parent.label) {
@@ -41,15 +53,24 @@ export function extractRunLabel(stepOrRun: any): string | null {
                     runLabel = current.parent.runLabel;
                     break;
                 }
-                if (current.parent.label && !current.parent.label.includes('Step') && !current.parent.label.includes('Logs')) {
+                if (
+                    current.parent.label &&
+                    !current.parent.label.includes('Step') &&
+                    !current.parent.label.includes('Logs')
+                ) {
                     runLabel = current.parent.label;
                     break;
                 }
                 current = current.parent;
             }
-            
+
             // If no run label found in parents and this looks like a run label, use it
-            if (!runLabel && stepOrRun.label && !stepOrRun.label.includes('Step') && !stepOrRun.label.includes('Logs')) {
+            if (
+                !runLabel &&
+                stepOrRun.label &&
+                !stepOrRun.label.includes('Step') &&
+                !stepOrRun.label.includes('Logs')
+            ) {
                 runLabel = stepOrRun.label;
             }
         }
@@ -83,10 +104,7 @@ export function createTimestampedFilename(
 /**
  * Save last run parameters to global state
  */
-export async function saveLastRunParameters(
-    context: vscode.ExtensionContext,
-    parameters: any
-): Promise<void> {
+export async function saveLastRunParameters(context: vscode.ExtensionContext, parameters: any): Promise<void> {
     // Remove sensitive or temporary data before saving
     const { remoteTargetDir, ...paramsToSave } = parameters;
     await context.globalState.update('lastParameters', paramsToSave);
@@ -95,9 +113,7 @@ export async function saveLastRunParameters(
 /**
  * Load last run parameters from global state
  */
-export async function loadLastRunParameters(
-    context: vscode.ExtensionContext
-): Promise<any> {
+export async function loadLastRunParameters(context: vscode.ExtensionContext): Promise<any> {
     return await context.globalState.get('lastParameters', {});
 }
 
@@ -112,7 +128,7 @@ export async function saveScheduledRunToDisk(
     const filename = createTimestampedFilename('', JSON_FILE_EXTENSION, run.machineLabel, run.machineIp);
     const logsDir = path.join(context.globalStorageUri.fsPath, LOGS_DIR_NAME);
     const filePath = path.join(logsDir, filename);
-    
+
     try {
         await ensureDirectoryExistsWithLogging(logsDir, logger);
         await vscode.workspace.fs.writeFile(
@@ -132,13 +148,9 @@ export async function saveScheduledRunToDisk(
 /**
  * Get log file path for a run
  */
-export function getLogFilePath(
-    context: vscode.ExtensionContext,
-    runLabel: string,
-    logFileName?: string
-): string {
+export function getLogFilePath(context: vscode.ExtensionContext, runLabel: string, logFileName?: string): string {
     const logsDir = path.join(context.globalStorageUri.fsPath, LOGS_DIR_NAME);
-    
+
     if (logFileName) {
         const runLogsDir = path.join(logsDir, sanitizeLabel(runLabel));
         return path.join(runLogsDir, logFileName);
@@ -195,14 +207,9 @@ export async function createTemplateFromParameters(
             debug: parameters.debug,
             failFast: parameters.failFast,
             logLevel: parameters.logLevel,
-            additionalArgs: parameters.additionalArgs
-        };        const template = await templateManager.saveTemplate(
-            name,
-            description,
-            templateParams,
-            category,
-            tags
-        );
+            additionalArgs: parameters.additionalArgs,
+        };
+        const template = await templateManager.saveTemplate(name, description, templateParams, category, tags);
 
         return template;
     } catch (error) {
@@ -248,7 +255,7 @@ export function applyTemplateToParameters(template: RunTemplate): any {
         debug: template.parameters.debug || false,
         failFast: template.parameters.failFast || false,
         logLevel: template.parameters.logLevel || '',
-        additionalArgs: template.parameters.additionalArgs || ''
+        additionalArgs: template.parameters.additionalArgs || '',
     };
 }
 
@@ -267,8 +274,8 @@ export function getPredefinedTemplates(): Partial<RunTemplate>[] {
                 iterations: 3,
                 logLevel: 'Information',
                 logToFile: true,
-                parameters: 'PackageName=openssl'
-            }
+                parameters: 'PackageName=openssl',
+            },
         },
         {
             name: 'Memory Stress Test',
@@ -280,8 +287,8 @@ export function getPredefinedTemplates(): Partial<RunTemplate>[] {
                 iterations: 1,
                 logLevel: 'Information',
                 logToFile: true,
-                debug: true
-            }
+                debug: true,
+            },
         },
         {
             name: 'Network Performance Test',
@@ -293,8 +300,8 @@ export function getPredefinedTemplates(): Partial<RunTemplate>[] {
                 iterations: 2,
                 logLevel: 'Information',
                 logToFile: true,
-                parameters: 'TestDuration=300'
-            }
+                parameters: 'TestDuration=300',
+            },
         },
         {
             name: 'Storage I/O Benchmark',
@@ -306,8 +313,8 @@ export function getPredefinedTemplates(): Partial<RunTemplate>[] {
                 iterations: 1,
                 logLevel: 'Information',
                 logToFile: true,
-                parameters: 'DiskFill=true;FileSize=1GB'
-            }
+                parameters: 'DiskFill=true;FileSize=1GB',
+            },
         },
         {
             name: 'Security Baseline',
@@ -319,8 +326,8 @@ export function getPredefinedTemplates(): Partial<RunTemplate>[] {
                 iterations: 1,
                 logLevel: 'Debug',
                 logToFile: true,
-                debug: true
-            }
-        }
+                debug: true,
+            },
+        },
     ];
 }

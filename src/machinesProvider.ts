@@ -3,14 +3,20 @@ import * as ssh2 from 'ssh2';
 import { Logger, LogLevel } from './types';
 import { isWindowsPlatform, getToolExecutableName, getDefaultRemoteTargetDir, getRemotePath } from './platformUtils';
 
-interface SharedMachine { label: string; ip: string; platform?: string; }
+interface SharedMachine {
+    label: string;
+    ip: string;
+    platform?: string;
+}
 type SharedMachinesType = SharedMachine[];
 
 /**
  * Provides the tree data for the Machines view.
  */
 export class MachinesProvider implements vscode.TreeDataProvider<MachineItem> {
-    private _onDidChangeTreeData: vscode.EventEmitter<MachineItem | undefined | void> = new vscode.EventEmitter<MachineItem | undefined | void>();
+    private _onDidChangeTreeData: vscode.EventEmitter<MachineItem | undefined | void> = new vscode.EventEmitter<
+        MachineItem | undefined | void
+    >();
     readonly onDidChangeTreeData: vscode.Event<MachineItem | undefined | void> = this._onDidChangeTreeData.event;
     private context: vscode.ExtensionContext;
     private machineStatus: { [ip: string]: 'unknown' | 'connected' | 'unreachable' | 'fetching' } = {};
@@ -71,7 +77,7 @@ export class MachinesProvider implements vscode.TreeDataProvider<MachineItem> {
         try {
             const username = await this.context.secrets.get(`machine:${ip}:username`);
             const password = await this.context.secrets.get(`machine:${ip}:password`);
-            
+
             if (username && password) {
                 return { username, password };
             }
@@ -108,17 +114,23 @@ export class MachinesProvider implements vscode.TreeDataProvider<MachineItem> {
      * @param password The password.
      * @param platform The platform (optional).
      */
-    async addMachine(label: string, ip: string, username?: string, password?: string, platform?: string): Promise<void> {
+    async addMachine(
+        label: string,
+        ip: string,
+        username?: string,
+        password?: string,
+        platform?: string
+    ): Promise<void> {
         try {
             const machines = this.context.globalState.get<SharedMachine[]>('machines', []);
             machines.push({ label, ip, platform });
             await this.context.globalState.update('machines', machines);
-            
+
             if (username && password) {
                 await this.context.secrets.store(`machine:${ip}:username`, username);
                 await this.context.secrets.store(`machine:${ip}:password`, password);
             }
-            
+
             this.refresh();
             await this.refreshConnectionStatusForMachine(ip);
         } catch (error) {
@@ -130,12 +142,12 @@ export class MachinesProvider implements vscode.TreeDataProvider<MachineItem> {
     async deleteMachine(ip: string): Promise<void> {
         try {
             let machines = this.context.globalState.get<SharedMachine[]>('machines', []);
-            machines = machines.filter((m) => m.ip !== ip);
+            machines = machines.filter(m => m.ip !== ip);
             await this.context.globalState.update('machines', machines);
-            
+
             await this.context.secrets.delete(`machine:${ip}:username`);
             await this.context.secrets.delete(`machine:${ip}:password`);
-            
+
             this.refresh();
         } catch (error) {
             this.logger.error(`Failed to delete machine ${ip}: ${error}`);
@@ -172,7 +184,7 @@ export class MachinesProvider implements vscode.TreeDataProvider<MachineItem> {
         const conn = new ssh2.Client();
         let isResolved = false;
         try {
-            const isConnected = await new Promise<boolean>((resolve) => {
+            const isConnected = await new Promise<boolean>(resolve => {
                 conn.on('ready', () => {
                     isResolved = true;
                     conn.end();
@@ -195,7 +207,7 @@ export class MachinesProvider implements vscode.TreeDataProvider<MachineItem> {
                         host: machine.ip,
                         username: credentials.username,
                         password: credentials.password,
-                        readyTimeout: 5000
+                        readyTimeout: 5000,
                     });
                 } catch {
                     resolve(false);
@@ -223,11 +235,11 @@ export class MachinesProvider implements vscode.TreeDataProvider<MachineItem> {
 
 export class MachineItem extends vscode.TreeItem {
     connectionStatus: 'unknown' | 'connected' | 'unreachable' | 'fetching' = 'unknown';
-    
+
     // Cached platform properties
     private _isWindows?: boolean;
     private _isLinux?: boolean;
-    
+
     constructor(
         public readonly label: string,
         public readonly ip: string,
@@ -239,9 +251,10 @@ export class MachineItem extends vscode.TreeItem {
     ) {
         super(label, collapsibleState);
         this.description = ip;
-        let tooltipParts = [];
-        if (username) { tooltipParts.push(`Username: ${username}`); }
-        if (platform) {tooltipParts.push(`Platform: ${platform}`); }
+        const tooltipParts: string[] = [];
+        if (platform) {
+            tooltipParts.push(`Platform: ${platform}`);
+        }
         this.tooltip = tooltipParts.length > 0 ? tooltipParts.join(' | ') : undefined;
     }
 

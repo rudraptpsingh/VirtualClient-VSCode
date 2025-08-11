@@ -24,15 +24,17 @@ export function generateTemplateOptions(templates: RunTemplate[]): string {
 
     // Generate HTML for each category
     let optionsHtml = '';
-    Object.keys(groupedTemplates).sort().forEach(category => {
-        optionsHtml += `<optgroup label="${category}">`;
-        groupedTemplates[category].forEach((template: RunTemplate) => {
-            const escapedName = template.name.replace(/"/g, '&quot;');
-            const description = template.description ? ` - ${template.description}` : '';
-            optionsHtml += `<option value="${template.id}" title="${escapedName}${description}">${escapedName}</option>`;
+    Object.keys(groupedTemplates)
+        .sort()
+        .forEach(category => {
+            optionsHtml += `<optgroup label="${category}">`;
+            groupedTemplates[category].forEach((template: RunTemplate) => {
+                const escapedName = template.name.replace(/"/g, '&quot;');
+                const description = template.description ? ` - ${template.description}` : '';
+                optionsHtml += `<option value="${template.id}" title="${escapedName}${description}">${escapedName}</option>`;
+            });
+            optionsHtml += '</optgroup>';
         });
-        optionsHtml += '</optgroup>';
-    });
 
     return optionsHtml;
 }
@@ -89,7 +91,9 @@ export function getTemplateStyles(): string {
     border: 1px solid var(--vscode-input-border); 
     border-radius: 6px; 
     width: 90%; 
-    max-width: 500px; 
+    max-width: 500px;
+    max-height: 80vh;
+    overflow-y: auto;
 }
 .modal-header { 
     display: flex; 
@@ -150,6 +154,27 @@ export function getTemplateStyles(): string {
     font-size: 0.8em;
     margin-top: 0;
 }
+#templatesList {
+    max-height: 400px;
+    overflow-y: auto;
+    border: 1px solid var(--vscode-input-border);
+    border-radius: 4px;
+    padding: 8px;
+    margin-top: 12px;
+}
+#templatesList::-webkit-scrollbar {
+    width: 12px;
+}
+#templatesList::-webkit-scrollbar-track {
+    background: var(--vscode-scrollbarSlider-background);
+}
+#templatesList::-webkit-scrollbar-thumb {
+    background: var(--vscode-scrollbarSlider-hoverBackground);
+    border-radius: 6px;
+}
+#templatesList::-webkit-scrollbar-thumb:hover {
+    background: var(--vscode-scrollbarSlider-activeBackground);
+}
 `;
 }
 
@@ -182,7 +207,8 @@ export function getTemplateSectionHtml(templateOptions: string): string {
 /**
  * Get template management modal HTML
  */
-export function getTemplateModalsHtml(): string {    return `
+export function getTemplateModalsHtml(): string {
+    return `
 <!-- Save Template Modal -->
 <div id="saveTemplateModal" class="modal">
     <div class="modal-content">
@@ -226,7 +252,7 @@ export function getTemplateModalsHtml(): string {    return `
 
 <!-- Manage Templates Modal -->
 <div id="manageTemplatesModal" class="modal">
-    <div class="modal-content" style="max-width: 700px;">
+    <div class="modal-content" style="max-width: 700px; max-height: 85vh;">
         <div class="modal-header">
             <span class="modal-title">Manage Templates</span>
             <span class="close">&times;</span>
@@ -391,12 +417,32 @@ document.getElementById('saveTemplateForm').addEventListener('submit', function(
         name: formData.get('templateName'),
         description: formData.get('templateDescription'),
         category: formData.get('templateCategory'),
-        tags: formData.get('templateTags') ? formData.get('templateTags').split(',').map(t => t.trim()) : [],        parameters: getFormParams() // Get current form parameters
+        tags: formData.get('templateTags') ? formData.get('templateTags').split(',').map(t => t.trim()) : [],
+        parameters: getCurrentFormParams() // Get current form parameters
     };
     
     vscode.postMessage({ command: 'saveTemplate', templateData });
     closeSaveTemplateModal();
 });
+
+// Helper function to get current form parameters (avoids conflict with main getFormParams)
+function getCurrentFormParams() {
+    // Wait for main form to be ready and then use its getFormParams function
+    if (typeof getFormParams === 'function') {
+        return getFormParams();
+    }
+    
+    // Fallback: basic parameter extraction
+    const form = document.getElementById('runForm');
+    if (!form) return {};
+    
+    const data = {};
+    new FormData(form).forEach((value, key) => {
+        data[key] = value;
+    });
+    
+    return data;
+}
 
 // Template management functions
 function refreshTemplateList() {
@@ -412,9 +458,7 @@ function importTemplates() {
 }
 
 function deleteTemplate(templateId) {
-    if (confirm('Are you sure you want to delete this template?')) {
-        vscode.postMessage({ command: 'deleteTemplate', templateId });
-    }
+    vscode.postMessage({ command: 'deleteTemplate', templateId });
 }
 
 // Handle messages from extension
@@ -649,10 +693,20 @@ function addParameterRow(key = '', value = '') {
 }
 
 // Initialize templates when page loads
-initializeTemplates();
+document.addEventListener('DOMContentLoaded', function() {
+    initializeTemplates();
+    // Set up modal handlers after DOM is ready
+    setupModalHandlers();
+});
 
-// Set up modal handlers after DOM is ready
-setupModalHandlers();
+// Also initialize if DOMContentLoaded already fired
+if (document.readyState === 'loading') {
+    // Do nothing, DOMContentLoaded will fire
+} else {
+    // DOM already loaded
+    initializeTemplates();
+    setupModalHandlers();
+}
 `;
 }
 
@@ -660,29 +714,39 @@ setupModalHandlers();
  * Enhanced Run Virtual Client webview content with template support
  */
 export function getEnhancedRunVirtualClientWebviewContent(
-    machines: any[], 
-    lastParams?: any, 
-    _steps?: any[], 
-    webview?: vscode.Webview, 
+    machines: any[],
+    lastParams?: any,
+    _steps?: any[],
+    webview?: vscode.Webview,
     templates?: RunTemplate[]
 ): string {
-    const machineOptions = machines.map(machine => 
-        `<option value="${machine.ip}" ${lastParams?.machineIp === machine.ip ? 'selected' : ''}>${machine.label} (${machine.ip})</option>`
-    ).join('');
-    
+    const machineOptions = machines
+        .map(
+            machine =>
+                `<option value="${machine.ip}" ${lastParams?.machineIp === machine.ip ? 'selected' : ''}>${machine.label} (${machine.ip})</option>`
+        )
+        .join('');
+
     const templateOptions = templates ? generateTemplateOptions(templates) : '';
-    
+
     // Prepare parameters for dynamic rows
-    const paramPairs = (lastParams?.parameters || '').split(/[;,]+/).map((s: string) => s.trim()).filter(Boolean).map((pair: string) => {
-        const [key, ...rest] = pair.split('=');
-        return { key: key.trim(), value: rest.join('=') };
-    });
-    
-    const paramRowsHtml = paramPairs.map((p: {key: string, value: string}, idx: number) =>
-        `<div class="param-row"><input type="text" class="param-key" placeholder="key" value="${p.key.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}" aria-label="Parameter key">
+    const paramPairs = (lastParams?.parameters || '')
+        .split(/[;,]+/)
+        .map((s: string) => s.trim())
+        .filter(Boolean)
+        .map((pair: string) => {
+            const [key, ...rest] = pair.split('=');
+            return { key: key.trim(), value: rest.join('=') };
+        });
+
+    const paramRowsHtml = paramPairs
+        .map(
+            (p: { key: string; value: string }, idx: number) =>
+                `<div class="param-row"><input type="text" class="param-key" placeholder="key" value="${p.key.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}" aria-label="Parameter key">
         <input type="text" class="param-value" placeholder="value" value="${p.value.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}" aria-label="Parameter value">
         <button type="button" class="remove-param" title="Remove">&times;</button></div>`
-    ).join('');
+        )
+        .join('');
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -901,10 +965,10 @@ This will delete all existing Virtual Client packages and extracted folders from
 <div class="checkbox-item">
 <label>Clean (--clean):</label>
 <div class="checkbox-group" id="cleanGroup">
-<div class="checkbox-item"><input type="checkbox" id="clean_logs" name="clean_targets" value="logs" ${(lastParams?.clean_targets||[]).includes('logs') ? 'checked' : ''}><label for="clean_logs">logs</label></div>
-<div class="checkbox-item"><input type="checkbox" id="clean_packages" name="clean_targets" value="packages" ${(lastParams?.clean_targets||[]).includes('packages') ? 'checked' : ''}><label for="clean_packages">packages</label></div>
-<div class="checkbox-item"><input type="checkbox" id="clean_state" name="clean_targets" value="state" ${(lastParams?.clean_targets||[]).includes('state') ? 'checked' : ''}><label for="clean_state">state</label></div>
-<div class="checkbox-item"><input type="checkbox" id="clean_all" name="clean_targets" value="all" ${(lastParams?.clean_targets||[]).includes('all') ? 'checked' : ''}><label for="clean_all">all</label></div>
+<div class="checkbox-item"><input type="checkbox" id="clean_logs" name="clean_targets" value="logs" ${(lastParams?.clean_targets || []).includes('logs') ? 'checked' : ''}><label for="clean_logs">logs</label></div>
+<div class="checkbox-item"><input type="checkbox" id="clean_packages" name="clean_targets" value="packages" ${(lastParams?.clean_targets || []).includes('packages') ? 'checked' : ''}><label for="clean_packages">packages</label></div>
+<div class="checkbox-item"><input type="checkbox" id="clean_state" name="clean_targets" value="state" ${(lastParams?.clean_targets || []).includes('state') ? 'checked' : ''}><label for="clean_state">state</label></div>
+<div class="checkbox-item"><input type="checkbox" id="clean_all" name="clean_targets" value="all" ${(lastParams?.clean_targets || []).includes('all') ? 'checked' : ''}><label for="clean_all">all</label></div>
 </div>
 </div>
 <div class="checkbox-item">
@@ -936,8 +1000,10 @@ This will delete all existing Virtual Client packages and extracted folders from
 ${getTemplateModalsHtml()}
 
 <script>
-(function() {
+// Acquire vscode API globally so template functions can access it
 const vscode = acquireVsCodeApi();
+
+(function() {
 const form = document.getElementById('runForm');
 const machineSelect = document.getElementById('machine');
 const submitBtn = document.getElementById('submitBtn');
